@@ -38,6 +38,16 @@ ENV/
 htmlcov/
 .pytest_cache/
 
+# Linting
+.ruff_cache/
+
 # OS
 .DS_Store
 Thumbs.db
+
+# Node (for ui/)
+node_modules/
+.next/
+.nuxt/
+.output/
+*.local
