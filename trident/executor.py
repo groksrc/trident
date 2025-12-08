@@ -8,7 +8,7 @@ from uuid import uuid4
 
 from .conditions import evaluate
 from .dag import DAG, build_dag
-from .errors import SchemaValidationError, TridentError
+from .errors import NodeExecutionError, SchemaValidationError, TridentError
 from .parser import PromptNode
 from .project import Edge, Project
 from .providers import CompletionConfig, get_registry, setup_providers
@@ -29,6 +29,7 @@ class NodeTrace:
     tokens: dict[str, int] = field(default_factory=dict)
     skipped: bool = False
     error: str | None = None
+    error_type: str | None = None  # Type of exception that occurred
 
     @property
     def input_tokens(self) -> int:
@@ -40,6 +41,11 @@ class NodeTrace:
         """Get output token count from tokens dictionary."""
         return self.tokens.get("output", 0)
 
+    @property
+    def succeeded(self) -> bool:
+        """Check if this node executed successfully."""
+        return self.error is None and not self.skipped
+
 
 @dataclass
 class ExecutionTrace:
@@ -49,20 +55,64 @@ class ExecutionTrace:
     start_time: str
     end_time: str | None = None
     nodes: list[NodeTrace] = field(default_factory=list)
+    error: str | None = None  # Top-level execution error
+
+    @property
+    def succeeded(self) -> bool:
+        """Check if execution completed without errors."""
+        return self.error is None and all(n.succeeded or n.skipped for n in self.nodes)
+
+    @property
+    def failed_node(self) -> NodeTrace | None:
+        """Get the first node that failed, if any."""
+        for node in self.nodes:
+            if node.error:
+                return node
+        return None
 
 
 @dataclass
 class ExecutionResult:
-    """Result of DAG execution."""
+    """Result of DAG execution.
+
+    Always returned, even on failure. Check `success` or `error` to determine outcome.
+    """
 
     outputs: dict[str, Any]
     trace: ExecutionTrace
+    error: NodeExecutionError | None = None  # Set if execution failed
+
+    @property
+    def success(self) -> bool:
+        """Check if execution completed successfully."""
+        return self.error is None and self.trace.succeeded
 
     def __repr__(self) -> str:
         """Return string representation showing execution metrics and status."""
         executed = sum(1 for node in self.trace.nodes if not node.skipped)
-        success = not any(node.error is not None for node in self.trace.nodes)
-        return f"ExecutionResult(executed={executed}, success={success})"
+        return f"ExecutionResult(executed={executed}, success={self.success})"
+
+    def summary(self) -> str:
+        """Get a human-readable summary of execution."""
+        lines = []
+        total = len(self.trace.nodes)
+        succeeded = sum(1 for n in self.trace.nodes if n.succeeded)
+        skipped = sum(1 for n in self.trace.nodes if n.skipped)
+        failed = sum(1 for n in self.trace.nodes if n.error)
+
+        lines.append(f"Execution {'succeeded' if self.success else 'FAILED'}")
+        lines.append(f"  Nodes: {succeeded} succeeded, {skipped} skipped, {failed} failed (of {total})")
+
+        if self.error:
+            lines.append(f"  Error: {self.error}")
+
+        if failed > 0:
+            lines.append("  Failed nodes:")
+            for node in self.trace.nodes:
+                if node.error:
+                    lines.append(f"    - {node.id}: {node.error}")
+
+        return "\n".join(lines)
 
 
 def _now_iso() -> str:
@@ -168,16 +218,20 @@ def run(
         dry_run: If True, simulate execution without LLM calls
 
     Returns:
-        ExecutionResult with outputs and trace
+        ExecutionResult with outputs and trace. Always returns, even on failure.
+        Check result.success or result.error to determine outcome.
+
+    Raises:
+        TridentError: Only for unrecoverable setup errors (no entrypoint, DAG cycle)
     """
     # Initialize providers
     setup_providers()
     registry = get_registry()
 
-    # Build DAG
+    # Build DAG - this can raise DAGError for cycles/invalid structure
     dag = build_dag(project)
 
-    # Determine entrypoint
+    # Determine entrypoint - fail early if none
     if entrypoint is None:
         if project.entrypoints:
             entrypoint = project.entrypoints[0]
@@ -189,6 +243,7 @@ def run(
     trace = ExecutionTrace(execution_id=execution_id, start_time=_now_iso())
     node_outputs: dict[str, dict[str, Any]] = {}
     tool_runner = PythonToolRunner(project.root)
+    execution_error: NodeExecutionError | None = None
 
     # Seed input nodes with provided inputs
     if inputs:
@@ -227,103 +282,152 @@ def run(
                 node_outputs[node_id] = node_trace.output
 
             elif node.type == "prompt":
-                prompt_node = project.prompts.get(node_id)
-                if not prompt_node:
-                    raise TridentError(f"Prompt node {node_id} not found")
-
-                # Gather inputs
-                gathered = _gather_inputs(node_id, dag, node_outputs)
-                node_trace.input = gathered
-
-                # Resolve model (node override > project default)
-                model = prompt_node.model or project.defaults.get("model")
-                if not model:
-                    raise TridentError(f"No model specified for node {node_id}")
-                node_trace.model = model
-
-                if dry_run:
-                    # Dry run: skip LLM call, generate mock output
-                    node_trace.output = _generate_mock_output(prompt_node)
-                    node_trace.tokens = {"input": 0, "output": 0}
-                else:
-                    # Get provider
-                    provider_result = registry.get_for_model(model)
-                    if not provider_result:
-                        raise TridentError(f"No provider found for model: {model}")
-                    provider, model_name = provider_result
-
-                    # Render template
-                    rendered = render(prompt_node.body, gathered)
-
-                    # Build completion config
-                    config = CompletionConfig(
-                        model=model_name,
-                        temperature=prompt_node.temperature or project.defaults.get("temperature"),
-                        max_tokens=prompt_node.max_tokens or project.defaults.get("max_tokens"),
-                        output_format=prompt_node.output.format,
-                        output_schema=prompt_node.output.fields
-                        if prompt_node.output.format == "json"
-                        else None,
-                    )
-
-                    # Execute completion
-                    result = provider.complete(rendered, config)
-                    node_trace.tokens = {
-                        "input": result.input_tokens,
-                        "output": result.output_tokens,
-                    }
-
-                    # Parse output
-                    if prompt_node.output.format == "json":
-                        try:
-                            parsed = json.loads(result.content)
-                        except json.JSONDecodeError as e:
-                            raise SchemaValidationError(f"Invalid JSON output: {e}")
-
-                        # Validate schema
-                        if prompt_node.output.fields:
-                            _validate_schema(parsed, prompt_node.output.fields)
-
-                        node_trace.output = parsed
-                    else:
-                        node_trace.output = {"text": result.content}
-
-                node_outputs[node_id] = node_trace.output
+                _execute_prompt_node(
+                    node_id, project, dag, node_outputs, node_trace, registry, dry_run
+                )
 
             elif node.type == "tool":
-                # Find tool definition
-                tool_def = project.tools.get(node_id)
-                if not tool_def:
-                    raise TridentError(f"Tool definition not found: {node_id}")
+                _execute_tool_node(node_id, project, dag, node_outputs, node_trace, tool_runner)
 
-                # Gather inputs
-                gathered = _gather_inputs(node_id, dag, node_outputs)
-                node_trace.input = gathered
+            node_outputs[node_id] = node_trace.output
 
-                # Execute tool
-                result = tool_runner.execute(tool_def, gathered)
-                node_trace.output = result
-                node_outputs[node_id] = result
-
-        except TridentError as e:
+        except Exception as e:
+            # Capture error details in trace
             node_trace.error = str(e)
+            node_trace.error_type = type(e).__name__
             node_trace.end_time = _now_iso()
             trace.nodes.append(node_trace)
-            raise
+
+            # Wrap in NodeExecutionError with full context
+            execution_error = NodeExecutionError(
+                node_id=node_id,
+                node_type=node.type,
+                message=str(e),
+                cause=e,
+                inputs=node_trace.input,
+            )
+            trace.error = str(execution_error)
+
+            # Stop execution on first error (fail fast)
+            break
 
         node_trace.end_time = _now_iso()
         trace.nodes.append(node_trace)
 
-    # Collect final outputs from output nodes
+    # Collect final outputs from output nodes (even partial on failure)
     final_outputs: dict[str, Any] = {}
-    for node_id in project.output_nodes:
-        if node_id in node_outputs:
-            final_outputs[node_id] = node_outputs[node_id]
+    for out_node_id in project.output_nodes:
+        if out_node_id in node_outputs:
+            final_outputs[out_node_id] = node_outputs[out_node_id]
 
-    # If no explicit output nodes, use last node's output
+    # If no explicit output nodes, use last successful node's output
     if not final_outputs and dag.execution_order:
-        last_node = dag.execution_order[-1]
-        final_outputs = node_outputs.get(last_node, {})
+        for out_node_id in reversed(dag.execution_order):
+            if out_node_id in node_outputs:
+                final_outputs = node_outputs[out_node_id]
+                break
 
     trace.end_time = _now_iso()
-    return ExecutionResult(outputs=final_outputs, trace=trace)
+    return ExecutionResult(outputs=final_outputs, trace=trace, error=execution_error)
+
+
+def _execute_prompt_node(
+    node_id: str,
+    project: Project,
+    dag: DAG,
+    node_outputs: dict[str, dict[str, Any]],
+    node_trace: NodeTrace,
+    registry: Any,
+    dry_run: bool,
+) -> None:
+    """Execute a prompt node. Raises on error."""
+    prompt_node = project.prompts.get(node_id)
+    if not prompt_node:
+        raise TridentError("Prompt definition not found in project")
+
+    # Gather inputs
+    gathered = _gather_inputs(node_id, dag, node_outputs)
+    node_trace.input = gathered
+
+    # Resolve model (node override > project default)
+    model = prompt_node.model or project.defaults.get("model")
+    if not model:
+        raise TridentError(
+            "No model specified. Set 'model' in prompt or project defaults."
+        )
+    node_trace.model = model
+
+    if dry_run:
+        # Dry run: skip LLM call, generate mock output
+        node_trace.output = _generate_mock_output(prompt_node)
+        node_trace.tokens = {"input": 0, "output": 0}
+        return
+
+    # Get provider
+    provider_result = registry.get_for_model(model)
+    if not provider_result:
+        raise TridentError(
+            f"No provider found for model '{model}'. "
+            f"Check ANTHROPIC_API_KEY or OPENAI_API_KEY is set."
+        )
+    provider, model_name = provider_result
+
+    # Render template
+    rendered = render(prompt_node.body, gathered)
+
+    # Build completion config
+    config = CompletionConfig(
+        model=model_name,
+        temperature=prompt_node.temperature or project.defaults.get("temperature"),
+        max_tokens=prompt_node.max_tokens or project.defaults.get("max_tokens"),
+        output_format=prompt_node.output.format,
+        output_schema=prompt_node.output.fields
+        if prompt_node.output.format == "json"
+        else None,
+    )
+
+    # Execute completion
+    result = provider.complete(rendered, config)
+    node_trace.tokens = {
+        "input": result.input_tokens,
+        "output": result.output_tokens,
+    }
+
+    # Parse output
+    if prompt_node.output.format == "json":
+        try:
+            parsed = json.loads(result.content)
+        except json.JSONDecodeError as e:
+            raise SchemaValidationError(
+                f"LLM returned invalid JSON. Response started with: {result.content[:100]!r}"
+            ) from e
+
+        # Validate schema
+        if prompt_node.output.fields:
+            _validate_schema(parsed, prompt_node.output.fields)
+
+        node_trace.output = parsed
+    else:
+        node_trace.output = {"text": result.content}
+
+
+def _execute_tool_node(
+    node_id: str,
+    project: Project,
+    dag: DAG,
+    node_outputs: dict[str, dict[str, Any]],
+    node_trace: NodeTrace,
+    tool_runner: PythonToolRunner,
+) -> None:
+    """Execute a tool node. Raises on error."""
+    tool_def = project.tools.get(node_id)
+    if not tool_def:
+        raise TridentError("Tool definition not found in project")
+
+    # Gather inputs
+    gathered = _gather_inputs(node_id, dag, node_outputs)
+    node_trace.input = gathered
+
+    # Execute tool
+    result = tool_runner.execute(tool_def, gathered)
+    node_trace.output = result

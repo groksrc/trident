@@ -4,6 +4,7 @@ from .errors import (
     ConditionError,
     DAGError,
     ExitCode,
+    NodeExecutionError,
     ParseError,
     ProviderError,
     SchemaValidationError,
@@ -11,7 +12,7 @@ from .errors import (
     TridentError,
     ValidationError,
 )
-from .executor import ExecutionResult, ExecutionTrace, run
+from .executor import ExecutionResult, ExecutionTrace, NodeTrace, run
 from .project import Project, load_project
 
 __version__ = "0.1.0"
@@ -22,6 +23,7 @@ __all__ = [
     "Project",
     "ExecutionResult",
     "ExecutionTrace",
+    "NodeTrace",
     "TridentError",
     "ParseError",
     "ValidationError",
@@ -30,5 +32,6 @@ __all__ = [
     "SchemaValidationError",
     "ConditionError",
     "ToolError",
+    "NodeExecutionError",
     "ExitCode",
 ]

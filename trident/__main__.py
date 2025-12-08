@@ -97,7 +97,17 @@ def cmd_run(args) -> int:
 
     # Output
     if args.output == "json":
-        output = {"outputs": result.outputs}
+        output = {
+            "success": result.success,
+            "outputs": result.outputs,
+        }
+        if result.error:
+            output["error"] = {
+                "node_id": result.error.node_id,
+                "node_type": result.error.node_type,
+                "message": str(result.error.args[0]),
+                "cause_type": result.error.cause_type,
+            }
         if args.trace:
             output["trace"] = {
                 "execution_id": result.trace.execution_id,
@@ -111,6 +121,8 @@ def cmd_run(args) -> int:
                         "model": n.model,
                         "tokens": n.tokens,
                         "skipped": n.skipped,
+                        "error": n.error,
+                        "error_type": n.error_type,
                     }
                     for n in result.trace.nodes
                 ],
@@ -118,7 +130,9 @@ def cmd_run(args) -> int:
         print(json.dumps(output, indent=2))
 
     elif args.output == "text":
-        if isinstance(result.outputs, dict):
+        if not result.success:
+            print(f"FAILED: {result.error}", file=sys.stderr)
+        elif isinstance(result.outputs, dict):
             for _key, value in result.outputs.items():
                 if isinstance(value, dict):
                     print(json.dumps(value))
@@ -128,23 +142,41 @@ def cmd_run(args) -> int:
             print(result.outputs)
 
     else:  # pretty
-        print("=== Execution Complete ===")
+        if result.success:
+            print("=== Execution Complete ===")
+        else:
+            print("=== Execution FAILED ===")
         print()
-        if args.trace:
+
+        if args.trace or not result.success:
             print("Trace:")
             for node in result.trace.nodes:
-                status = "SKIPPED" if node.skipped else "OK"
+                if node.error:
+                    status = "FAILED"
+                elif node.skipped:
+                    status = "SKIPPED"
+                else:
+                    status = "OK"
                 tokens = (
                     f" ({node.tokens.get('input', 0)}+{node.tokens.get('output', 0)} tokens)"
                     if node.tokens
                     else ""
                 )
-                print(f"  [{status}] {node.id}{tokens}")
+                error_msg = f" - {node.error}" if node.error else ""
+                print(f"  [{status}] {node.id}{tokens}{error_msg}")
+            print()
+
+        if result.error:
+            print("Error:")
+            print(f"  {result.error}")
             print()
 
         print("Outputs:")
         print(json.dumps(result.outputs, indent=2))
 
+    # Return appropriate exit code
+    if result.error:
+        return result.error.exit_code
     return 0
 
 

@@ -1,6 +1,7 @@
 """Trident error types and exit codes."""
 
 from enum import IntEnum
+from typing import Any
 
 
 class ExitCode(IntEnum):
@@ -16,6 +17,9 @@ class TridentError(Exception):
     """Base error for all Trident errors."""
 
     exit_code: ExitCode = ExitCode.RUNTIME_ERROR
+
+    def __str__(self) -> str:
+        return super().__str__()
 
 
 class ParseError(TridentError):
@@ -62,3 +66,52 @@ class ToolError(TridentError):
     """Error executing a tool."""
 
     exit_code = ExitCode.RUNTIME_ERROR
+
+
+class NodeExecutionError(TridentError):
+    """Error during node execution with full context.
+
+    This error wraps the underlying cause and provides context about
+    which node failed, what inputs it received, and what went wrong.
+    """
+
+    exit_code = ExitCode.RUNTIME_ERROR
+
+    def __init__(
+        self,
+        node_id: str,
+        node_type: str,
+        message: str,
+        cause: Exception | None = None,
+        inputs: dict[str, Any] | None = None,
+    ):
+        self.node_id = node_id
+        self.node_type = node_type
+        self.cause = cause
+        self.inputs = inputs or {}
+        self.cause_type = type(cause).__name__ if cause else None
+
+        # Inherit exit code from cause if it's a TridentError
+        if cause and isinstance(cause, TridentError):
+            self.exit_code = cause.exit_code
+
+        super().__init__(message)
+
+    def __str__(self) -> str:
+        parts = [f"Node '{self.node_id}' ({self.node_type}) failed: {self.args[0]}"]
+        if self.cause:
+            parts.append(f"  Caused by {self.cause_type}: {self.cause}")
+        if self.inputs:
+            # Truncate large inputs for readability
+            input_summary = {k: _truncate(v) for k, v in self.inputs.items()}
+            parts.append(f"  Inputs: {input_summary}")
+        return "\n".join(parts)
+
+
+def _truncate(value: Any, max_len: int = 100) -> Any:
+    """Truncate long values for error display."""
+    if isinstance(value, str) and len(value) > max_len:
+        return value[:max_len] + "..."
+    if isinstance(value, (list, dict)) and len(str(value)) > max_len:
+        return f"<{type(value).__name__} with {len(value)} items>"
+    return value
