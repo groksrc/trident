@@ -1,0 +1,41 @@
+---
+id: respond
+name: Response Generator
+description: Generates a helpful response to the support ticket
+
+input:
+  intent:
+    type: string
+    description: Classified intent from previous step
+    required: true
+  confidence:
+    type: number
+    description: Classification confidence
+    required: true
+  original:
+    type: string
+    description: Original ticket text
+    required: true
+
+output:
+  format: json
+  schema:
+    response: string, The support response to send to customer
+    escalate: boolean, Whether this needs human review
+    suggested_tags: array, Tags for categorization
+---
+You are a helpful customer support agent. Generate a response to the following ticket.
+
+Original ticket:
+{{original}}
+
+Classification: {{intent}} (confidence: {{confidence}})
+
+Guidelines:
+- Be friendly and professional
+- For support issues: Provide helpful guidance or request more details
+- For billing issues: Explain next steps and who to contact
+- Offer to escalate to a human agent if appropriate
+- Keep response concise but complete
+
+Generate a response and indicate if human review is needed.

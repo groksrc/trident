@@ -1,0 +1,52 @@
+trident: "0.1"
+name: support-triage
+description: Classify and respond to support tickets
+version: "1.0.0"
+
+defaults:
+  model: anthropic/claude-sonnet-4-20250514
+  temperature: 0.7
+  max_tokens: 1024
+
+entrypoints:
+  - input
+
+nodes:
+  input:
+    type: input
+    schema:
+      ticket_text: string, The customer support ticket
+      customer_id: string, Customer identifier
+
+  output:
+    type: output
+    format: json
+
+edges:
+  e1:
+    from: input
+    to: classify
+    mapping:
+      content: ticket_text
+
+  e2:
+    from: classify
+    to: respond
+    mapping:
+      intent: output.intent
+      confidence: output.confidence
+      original: ticket_text
+    condition: "output.intent != 'spam' and output.confidence > 0.5"
+
+  e3:
+    from: respond
+    to: output
+    mapping:
+      response: response
+      escalate: escalate
+      suggested_tags: suggested_tags
+
+env:
+  ANTHROPIC_API_KEY:
+    description: Anthropic API key for Claude
+    required: true

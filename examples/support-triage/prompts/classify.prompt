@@ -1,0 +1,30 @@
+---
+id: classify
+name: Intent Classifier
+description: Classifies support ticket intent
+
+input:
+  content:
+    type: string
+    description: The support ticket content
+    required: true
+
+output:
+  format: json
+  schema:
+    intent: string, One of support/billing/spam/other
+    confidence: number, 0-1 confidence score
+    reasoning: string, Brief explanation of classification
+---
+You are a support ticket classifier. Analyze the following ticket and determine its intent.
+
+Ticket content:
+{{content}}
+
+Classify this ticket into one of these categories:
+- support: Technical support or product help
+- billing: Payment, subscription, or account issues
+- spam: Unsolicited or irrelevant content
+- other: Doesn't fit other categories
+
+Respond with your classification, confidence score (0-1), and brief reasoning.
