@@ -9,8 +9,12 @@ input:
     description: The raw feature request or bug report
     required: true
   codebase_context:
+    type: array
+    description: Search results from the codebase
+    required: false
+  file_contents:
     type: string
-    description: Relevant context about the codebase
+    description: Contents of relevant files
     required: false
 
 output:
@@ -28,16 +32,21 @@ You are a senior product engineer. Analyze this feature request and produce clea
 ## Feature Request
 {{feature_request}}
 
-## Codebase Context
+## Codebase Search Results
 {{codebase_context}}
+
+## Relevant File Contents
+{{file_contents}}
 
 ## Your Task
 
 1. Understand what is being requested
-2. Identify the core problem being solved
-3. Break it down into specific, implementable requirements
-4. Define clear acceptance criteria (testable conditions)
-5. Identify which files will likely need changes
-6. Note any ambiguities that need clarification
+2. Review the codebase context to understand existing patterns
+3. Identify the core problem being solved
+4. Break it down into specific, implementable requirements
+5. Define clear acceptance criteria (testable conditions)
+6. Identify which EXISTING files will need changes (use actual paths from the context)
+7. Note any ambiguities that need clarification
 
-Be specific and technical. Requirements should be implementable by a developer without further clarification (unless you have questions).
+IMPORTANT: Use the actual file paths from the codebase context. Do not invent file paths.
+Be specific and technical. Requirements should be implementable by a developer without further clarification.

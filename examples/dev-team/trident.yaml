@@ -1,7 +1,7 @@
 trident: "0.1"
 name: dev-team
 description: Self-improving development team for Trident
-version: "0.1.0"
+version: "0.2.0"
 
 defaults:
   model: anthropic/claude-sonnet-4-20250514
@@ -22,33 +22,65 @@ nodes:
     format: json
 
 edges:
-  # Input -> gather context -> clarify
+  # Phase 1: Understand the codebase structure
   e1:
     from: input
-    to: gather_context
-    mapping:
-      pattern: feature_request
+    to: list_structure
 
+  # Phase 2: Extract search context from feature request
   e2:
+    from: input
+    to: extract_context
+    mapping:
+      feature_request: feature_request
+
+  e3:
+    from: list_structure
+    to: extract_context
+    mapping:
+      project_files: files
+
+  # Phase 3: Search codebase with extracted terms
+  e4:
+    from: extract_context
+    to: search_codebase
+    mapping:
+      terms: search_terms
+
+  # Phase 4: Read likely affected files
+  e5:
+    from: extract_context
+    to: read_context_files
+    mapping:
+      files: likely_files
+
+  # Phase 5: Clarify requirements with full context
+  e6:
     from: input
     to: clarify
     mapping:
       feature_request: feature_request
 
-  e3:
-    from: gather_context
+  e7:
+    from: search_codebase
     to: clarify
     mapping:
       codebase_context: matches
 
-  # Clarify -> read files -> design
-  e4:
+  e8:
+    from: read_context_files
+    to: clarify
+    mapping:
+      file_contents: content
+
+  # Phase 6: Design with existing code
+  e9:
     from: clarify
     to: read_affected_files
     mapping:
       files: files_likely_affected
 
-  e5:
+  e10:
     from: clarify
     to: design
     mapping:
@@ -57,56 +89,56 @@ edges:
       requirements: requirements
       files_likely_affected: files_likely_affected
 
-  e6:
+  e11:
     from: read_affected_files
     to: design
     mapping:
       existing_code: content
 
-  # Design -> read files -> implement
-  e7:
+  # Phase 7: Implement with file context
+  e12:
     from: design
     to: read_for_implement
     mapping:
       files: modified_files
 
-  e8:
+  e13:
     from: clarify
     to: implement
     mapping:
       title: title
 
-  e9:
+  e14:
     from: design
     to: implement
     mapping:
       approach: approach
       changes: changes
 
-  e10:
+  e15:
     from: read_for_implement
     to: implement
     mapping:
       file_contents: content
 
-  # Implement -> write files -> run tests -> analyze
-  e11:
+  # Phase 8: Write, test, analyze
+  e16:
     from: implement
     to: write_changes
     mapping:
       code_changes: code_changes
 
-  e12:
+  e17:
     from: write_changes
     to: run_tests
 
-  e13:
+  e18:
     from: clarify
     to: test_runner
     mapping:
       title: title
 
-  e14:
+  e19:
     from: run_tests
     to: test_runner
     mapping:
@@ -115,14 +147,14 @@ edges:
       num_passed: num_passed
       num_failed: num_failed
 
-  e15:
+  e20:
     from: implement
     to: test_runner
     mapping:
       changes_made: summary
 
-  # Test results -> output
-  e16:
+  # Output
+  e21:
     from: test_runner
     to: output
     mapping:
@@ -133,17 +165,29 @@ edges:
       ready_for_review: ready_for_review
 
 tools:
-  gather_context:
+  list_structure:
     type: python
     module: file_ops
-    function: search_files
-    description: Search codebase for relevant context
+    function: list_project_structure
+    description: List all files in the project
+
+  search_codebase:
+    type: python
+    module: file_ops
+    function: search_multiple
+    description: Search codebase for multiple terms
+
+  read_context_files:
+    type: python
+    module: file_ops
+    function: read_files_multi
+    description: Read files identified as relevant
 
   read_affected_files:
     type: python
     module: file_ops
     function: read_files_multi
-    description: Read multiple files
+    description: Read files likely to be affected
 
   read_for_implement:
     type: python

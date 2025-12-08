@@ -70,6 +70,80 @@ def list_files(pattern: str = "**/*.py") -> dict[str, Any]:
         return {"files": [], "error": str(e)}
 
 
+def list_project_structure() -> dict[str, Any]:
+    """List all Python files in the project with their structure.
+
+    Returns:
+        {"files": str} - Formatted list of project files
+    """
+    try:
+        # Get Python files, excluding common non-source directories
+        exclude = {".git", "__pycache__", ".venv", "venv", "node_modules", ".eggs", "*.egg-info"}
+        files = []
+
+        for p in WORKSPACE.rglob("*.py"):
+            # Skip excluded directories
+            if any(ex in str(p) for ex in exclude):
+                continue
+            rel_path = str(p.relative_to(WORKSPACE))
+            files.append(rel_path)
+
+        # Also include .prompt files
+        for p in WORKSPACE.rglob("*.prompt"):
+            if any(ex in str(p) for ex in exclude):
+                continue
+            rel_path = str(p.relative_to(WORKSPACE))
+            files.append(rel_path)
+
+        # Sort and format
+        files.sort()
+        formatted = "\n".join(files)
+        return {"files": formatted}
+    except Exception as e:
+        return {"files": "", "error": str(e)}
+
+
+def search_multiple(terms: list[str] | str, file_pattern: str = "**/*.py") -> dict[str, Any]:
+    """Search for multiple terms in files.
+
+    Args:
+        terms: List of search terms or comma-separated string
+        file_pattern: Glob pattern for files to search
+
+    Returns:
+        {"matches": list[{"term": str, "file": str, "line": int, "text": str}]}
+    """
+    if isinstance(terms, str):
+        terms = [t.strip() for t in terms.split(",") if t.strip()]
+
+    all_matches = []
+    seen = set()  # Avoid duplicate file/line combos
+
+    for term in terms[:10]:  # Limit to 10 terms
+        for file_path in WORKSPACE.glob(file_pattern):
+            if not file_path.is_file():
+                continue
+            try:
+                content = file_path.read_text(encoding="utf-8")
+                for i, line in enumerate(content.split("\n"), 1):
+                    if term.lower() in line.lower():
+                        key = (str(file_path), i)
+                        if key not in seen:
+                            seen.add(key)
+                            all_matches.append({
+                                "term": term,
+                                "file": str(file_path.relative_to(WORKSPACE)),
+                                "line": i,
+                                "text": line.strip()[:200],
+                            })
+            except:
+                continue
+
+    # Sort by file, then line
+    all_matches.sort(key=lambda x: (x["file"], x["line"]))
+    return {"matches": all_matches[:100]}
+
+
 def search_files(pattern: str, file_pattern: str = "**/*.py") -> dict[str, Any]:
     """Search for a pattern in files.
 

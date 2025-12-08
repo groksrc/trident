@@ -30,8 +30,8 @@ output:
   schema:
     approach: string, High-level description of the approach
     changes: array, List of specific changes to make
-    new_files: array, Any new files to create
-    modified_files: array, Existing files to modify
+    new_files: array, Any new files to create (empty array if none)
+    modified_files: array, File paths to modify (JUST the path like trident/executor.py)
     test_strategy: string, How to test this change
     risks: array, Potential issues or edge cases
 ---
@@ -59,9 +59,11 @@ Design a clean, minimal implementation:
 2. **Changes**: List each specific code change needed
    - Be precise: "Add method X to class Y" not "update the code"
    - Include function signatures where helpful
-3. **New Files**: List any new files with their purpose
-4. **Modified Files**: List files to change and what changes
+3. **New Files**: List any new files with their purpose (empty array [] if none needed)
+4. **Modified Files**: List ONLY the file paths to modify
+   - IMPORTANT: Just the path, e.g. ["trident/executor.py"] not ["trident/executor.py - description"]
+   - These paths will be used to read the files for modification
 5. **Test Strategy**: How should this be tested?
 6. **Risks**: What could go wrong? Edge cases?
 
-Keep it simple. Prefer minimal changes over elegant abstractions.
+Keep it simple. Prefer modifying existing files over creating new ones.

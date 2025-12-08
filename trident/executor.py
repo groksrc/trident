@@ -30,6 +30,16 @@ class NodeTrace:
     skipped: bool = False
     error: str | None = None
 
+    @property
+    def input_tokens(self) -> int:
+        """Get input token count from tokens dictionary."""
+        return self.tokens.get('input', 0)
+
+    @property
+    def output_tokens(self) -> int:
+        """Get output token count from tokens dictionary."""
+        return self.tokens.get('output', 0)
+
 
 @dataclass
 class ExecutionTrace:
