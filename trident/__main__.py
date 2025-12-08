@@ -3,8 +3,9 @@
 import argparse
 import json
 import sys
+from pathlib import Path
 
-from . import ExitCode, TridentError, load_project, run
+from . import ExitCode, TridentError, __version__, load_project, run
 
 
 def main() -> int:
@@ -14,9 +15,27 @@ def main() -> int:
     )
     subparsers = parser.add_subparsers(dest="command", help="Commands")
 
-    # Run command
-    run_parser = subparsers.add_parser("run", help="Execute a Trident pipeline")
-    run_parser.add_argument("project", nargs="?", default=".", help="Path to project")
+    # Version command
+    subparsers.add_parser("version", help="Show version")
+
+    # Project command with subcommands
+    project_parser = subparsers.add_parser("project", help="Project commands")
+    project_subparsers = project_parser.add_subparsers(dest="subcommand", help="Project subcommands")
+
+    # project init
+    init_parser = project_subparsers.add_parser("init", help="Create a new Trident project")
+    init_parser.add_argument("path", nargs="?", default=".", help="Path to create project (default: .)")
+    init_parser.add_argument(
+        "--template",
+        "-t",
+        choices=["minimal", "standard"],
+        default="minimal",
+        help="Project template (default: minimal)",
+    )
+
+    # project run
+    run_parser = project_subparsers.add_parser("run", help="Execute a Trident pipeline")
+    run_parser.add_argument("path", nargs="?", default=".", help="Path to project (default: .)")
     run_parser.add_argument("--input", "-i", help="JSON input data")
     run_parser.add_argument("--input-file", "-f", help="Path to JSON input file")
     run_parser.add_argument("--entrypoint", "-e", help="Starting node ID")
@@ -25,23 +44,14 @@ def main() -> int:
         "-o",
         choices=["json", "text", "pretty"],
         default="pretty",
-        help="Output format",
+        help="Output format (default: pretty)",
     )
     run_parser.add_argument("--trace", action="store_true", help="Output execution trace")
+    run_parser.add_argument("--dry-run", action="store_true", help="Simulate without LLM calls")
 
-    # Validate command
-    validate_parser = subparsers.add_parser("validate", help="Validate a Trident project")
-    validate_parser.add_argument("project", nargs="?", default=".", help="Path to project")
-
-    # List command
-    list_parser = subparsers.add_parser("list", help="List nodes and edges")
-    list_parser.add_argument("project", nargs="?", default=".", help="Path to project")
-    list_parser.add_argument(
-        "--format",
-        choices=["text", "json", "mermaid"],
-        default="text",
-        help="Output format",
-    )
+    # project validate
+    validate_parser = project_subparsers.add_parser("validate", help="Validate a Trident project")
+    validate_parser.add_argument("path", nargs="?", default=".", help="Path to project (default: .)")
 
     args = parser.parse_args()
 
@@ -50,12 +60,18 @@ def main() -> int:
         return 0
 
     try:
-        if args.command == "validate":
-            return cmd_validate(args)
-        elif args.command == "run":
-            return cmd_run(args)
-        elif args.command == "list":
-            return cmd_list(args)
+        if args.command == "version":
+            return cmd_version()
+        elif args.command == "project":
+            if not args.subcommand:
+                project_parser.print_help()
+                return 0
+            if args.subcommand == "init":
+                return cmd_project_init(args)
+            elif args.subcommand == "run":
+                return cmd_project_run(args)
+            elif args.subcommand == "validate":
+                return cmd_project_validate(args)
     except TridentError as e:
         print(f"Error: {e}", file=sys.stderr)
         return e.exit_code
@@ -66,11 +82,136 @@ def main() -> int:
     return 0
 
 
-def cmd_validate(args) -> int:
+def cmd_version() -> int:
+    """Show version."""
+    print(f"trident {__version__}")
+    return 0
+
+
+def cmd_project_init(args) -> int:
+    """Create a new project."""
+    path = Path(args.path).resolve()
+
+    # Create directory if it doesn't exist
+    path.mkdir(parents=True, exist_ok=True)
+
+    # Check if already a trident project
+    manifest_path = path / "trident.yaml"
+    if manifest_path.exists():
+        print(f"Error: {path} already contains a trident.yaml", file=sys.stderr)
+        return ExitCode.VALIDATION_ERROR
+
+    # Determine project name from directory
+    project_name = path.name if path.name != "." else Path.cwd().name
+
+    # Create manifest
+    manifest_content = f'''trident: "0.1"
+name: {project_name}
+description: A Trident project
+
+defaults:
+  model: anthropic/claude-sonnet-4-20250514
+  temperature: 0.7
+  max_tokens: 1024
+
+entrypoints:
+  - input
+
+nodes:
+  input:
+    type: input
+    schema:
+      text: string, Input text to process
+
+  output:
+    type: output
+    format: json
+
+edges:
+  e1:
+    from: input
+    to: example
+    mapping:
+      content: text
+
+  e2:
+    from: example
+    to: output
+    mapping:
+      result: output
+'''
+    manifest_path.write_text(manifest_content)
+
+    # Create prompts directory
+    prompts_dir = path / "prompts"
+    prompts_dir.mkdir(exist_ok=True)
+
+    # Create example prompt
+    example_prompt = '''---
+id: example
+name: Example Prompt
+description: An example prompt that echoes input
+
+input:
+  content:
+    type: string
+    description: The content to process
+
+output:
+  format: json
+  schema:
+    result: string, The processed result
+    length: number, Length of the input
+---
+You are a helpful assistant. Process the following input and return a result.
+
+Input: {{content}}
+
+Respond with a JSON object containing:
+- result: A brief summary or echo of the input
+- length: The character count of the input
+'''
+    (prompts_dir / "example.prompt").write_text(example_prompt)
+
+    # Create additional files for standard template
+    if args.template == "standard":
+        (path / "tools").mkdir(exist_ok=True)
+        (path / "schemas").mkdir(exist_ok=True)
+
+        # Create example tool
+        tool_content = '''"""Example tool for Trident."""
+
+
+def process(text: str) -> dict:
+    """Process text and return metadata."""
+    return {
+        "word_count": len(text.split()),
+        "char_count": len(text),
+    }
+'''
+        (path / "tools" / "example_tool.py").write_text(tool_content)
+
+    print(f"Created Trident project at {path}")
+    print(f"  Template: {args.template}")
+    print("  Manifest: trident.yaml")
+    print("  Prompts:  prompts/example.prompt")
+    if args.template == "standard":
+        print("  Tools:    tools/")
+        print("  Schemas:  schemas/")
+    print()
+    print("Next steps:")
+    print(f"  cd {path}")
+    print("  trident project validate")
+    print("  trident project run --dry-run")
+
+    return 0
+
+
+def cmd_project_validate(args) -> int:
     """Validate a project."""
     from .dag import build_dag
 
-    project = load_project(args.project)
+    project = load_project(args.path)
     dag = build_dag(project)
 
     print(f"Valid: {project.name}")
@@ -80,9 +221,9 @@ def cmd_validate(args) -> int:
     return 0
 
 
-def cmd_run(args) -> int:
+def cmd_project_run(args) -> int:
     """Execute a pipeline."""
-    project = load_project(args.project)
+    project = load_project(args.path)
 
     # Parse inputs
     inputs = {}
@@ -93,7 +234,7 @@ def cmd_run(args) -> int:
             inputs = json.load(f)
 
     # Execute
-    result = run(project, entrypoint=args.entrypoint, inputs=inputs)
+    result = run(project, entrypoint=args.entrypoint, inputs=inputs, dry_run=args.dry_run)
 
     # Output
     if args.output == "json":
@@ -177,54 +318,6 @@ def cmd_run(args) -> int:
     # Return appropriate exit code
     if result.error:
         return result.error.exit_code
-    return 0
-
-
-def cmd_list(args) -> int:
-    """List nodes and edges."""
-    from .dag import build_dag
-
-    project = load_project(args.project)
-    dag = build_dag(project)
-
-    if args.format == "json":
-        output = {
-            "nodes": [{"id": n.id, "type": n.type} for n in dag.nodes.values()],
-            "edges": [
-                {"id": e.id, "from": e.from_node, "to": e.to_node} for e in project.edges.values()
-            ],
-            "execution_order": dag.execution_order,
-        }
-        print(json.dumps(output, indent=2))
-
-    elif args.format == "mermaid":
-        print("graph LR")
-        for node_id, node in dag.nodes.items():
-            shape = {"input": "([", "output": "([", "prompt": "[", "tool": "{{"}
-            end_shape = {"input": "])", "output": "])", "prompt": "]", "tool": "}}"}
-            s, e = shape.get(node.type, "["), end_shape.get(node.type, "]")
-            print(f"    {node_id}{s}{node_id}{e}")
-        for edge in project.edges.values():
-            label = edge.condition or ""
-            if label:
-                print(f"    {edge.from_node} -->|{label}| {edge.to_node}")
-            else:
-                print(f"    {edge.from_node} --> {edge.to_node}")
-
-    else:  # text
-        print(f"Project: {project.name}")
-        print()
-        print("Nodes:")
-        for node_id, node in dag.nodes.items():
-            print(f"  {node.type:8} {node_id}")
-        print()
-        print("Edges:")
-        for edge in project.edges.values():
-            cond = f" [{edge.condition}]" if edge.condition else ""
-            print(f"  {edge.from_node} -> {edge.to_node}{cond}")
-        print()
-        print(f"Execution order: {' -> '.join(dag.execution_order)}")
-
     return 0
 
 
