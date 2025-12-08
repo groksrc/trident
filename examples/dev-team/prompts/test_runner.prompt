@@ -1,0 +1,64 @@
+---
+id: test_runner
+name: Test Analyzer
+description: Analyze test results and determine next steps
+
+input:
+  title:
+    type: string
+    description: Feature being tested
+    required: true
+  test_output:
+    type: string
+    description: Output from running tests
+    required: true
+  passed:
+    type: boolean
+    description: Whether tests passed
+    required: true
+  num_passed:
+    type: number
+    description: Number of passing tests
+    required: true
+  num_failed:
+    type: number
+    description: Number of failing tests
+    required: true
+  changes_made:
+    type: string
+    description: Summary of changes that were made
+    required: true
+
+output:
+  format: json
+  schema:
+    status: string, One of passed/failed/needs_fix
+    summary: string, Brief summary of test results
+    failures: array, List of specific failures if any
+    suggested_fixes: array, Suggested fixes for failures
+    ready_for_review: boolean, Whether this is ready for human review
+---
+You are a QA engineer. Analyze these test results.
+
+## Feature: {{title}}
+
+## Changes Made
+{{changes_made}}
+
+## Test Results
+- Passed: {{passed}}
+- Tests passed: {{num_passed}}
+- Tests failed: {{num_failed}}
+
+## Test Output
+{{test_output}}
+
+## Your Task
+
+1. Determine if tests passed or failed
+2. If failed, identify the specific failures
+3. Suggest fixes for any failures
+4. Decide if this is ready for human review
+
+If all tests pass, mark as ready for review.
+If tests fail, provide specific, actionable fix suggestions.

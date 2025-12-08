@@ -47,6 +47,9 @@ def build_dag(project: Project) -> DAG:
     for node_id in project.output_nodes:
         nodes[node_id] = DAGNode(id=node_id, type="output")
 
+    for node_id in project.tools:
+        nodes[node_id] = DAGNode(id=node_id, type="tool")
+
     # Wire up edges
     for edge in project.edges.values():
         if edge.from_node not in nodes:

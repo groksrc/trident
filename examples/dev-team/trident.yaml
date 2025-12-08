@@ -1,0 +1,172 @@
+trident: "0.1"
+name: dev-team
+description: Self-improving development team for Trident
+version: "0.1.0"
+
+defaults:
+  model: anthropic/claude-sonnet-4-20250514
+  temperature: 0.3
+  max_tokens: 4096
+
+entrypoints:
+  - input
+
+nodes:
+  input:
+    type: input
+    schema:
+      feature_request: string, The feature request or bug to implement
+
+  output:
+    type: output
+    format: json
+
+edges:
+  # Input -> gather context -> clarify
+  e1:
+    from: input
+    to: gather_context
+    mapping:
+      pattern: feature_request
+
+  e2:
+    from: input
+    to: clarify
+    mapping:
+      feature_request: feature_request
+
+  e3:
+    from: gather_context
+    to: clarify
+    mapping:
+      codebase_context: matches
+
+  # Clarify -> read files -> design
+  e4:
+    from: clarify
+    to: read_affected_files
+    mapping:
+      files: files_likely_affected
+
+  e5:
+    from: clarify
+    to: design
+    mapping:
+      title: title
+      problem: problem
+      requirements: requirements
+      files_likely_affected: files_likely_affected
+
+  e6:
+    from: read_affected_files
+    to: design
+    mapping:
+      existing_code: content
+
+  # Design -> read files -> implement
+  e7:
+    from: design
+    to: read_for_implement
+    mapping:
+      files: modified_files
+
+  e8:
+    from: clarify
+    to: implement
+    mapping:
+      title: title
+
+  e9:
+    from: design
+    to: implement
+    mapping:
+      approach: approach
+      changes: changes
+
+  e10:
+    from: read_for_implement
+    to: implement
+    mapping:
+      file_contents: content
+
+  # Implement -> write files -> run tests -> analyze
+  e11:
+    from: implement
+    to: write_changes
+    mapping:
+      code_changes: code_changes
+
+  e12:
+    from: write_changes
+    to: run_tests
+
+  e13:
+    from: clarify
+    to: test_runner
+    mapping:
+      title: title
+
+  e14:
+    from: run_tests
+    to: test_runner
+    mapping:
+      test_output: output
+      passed: passed
+      num_passed: num_passed
+      num_failed: num_failed
+
+  e15:
+    from: implement
+    to: test_runner
+    mapping:
+      changes_made: summary
+
+  # Test results -> output
+  e16:
+    from: test_runner
+    to: output
+    mapping:
+      status: status
+      summary: summary
+      failures: failures
+      suggested_fixes: suggested_fixes
+      ready_for_review: ready_for_review
+
+tools:
+  gather_context:
+    type: python
+    module: file_ops
+    function: search_files
+    description: Search codebase for relevant context
+
+  read_affected_files:
+    type: python
+    module: file_ops
+    function: read_files_multi
+    description: Read multiple files
+
+  read_for_implement:
+    type: python
+    module: file_ops
+    function: read_files_multi
+    description: Read files for implementation
+
+  write_changes:
+    type: python
+    module: file_ops
+    function: write_files_multi
+    description: Write code changes to files
+
+  run_tests:
+    type: python
+    module: file_ops
+    function: run_tests
+    description: Run the test suite
+
+env:
+  ANTHROPIC_API_KEY:
+    description: Anthropic API key for Claude
+    required: true
+  TRIDENT_WORKSPACE:
+    description: Path to the workspace (codebase root)
+    required: true

@@ -1,0 +1,67 @@
+---
+id: design
+name: Technical Designer
+description: Create a technical design for implementing requirements
+
+input:
+  title:
+    type: string
+    description: Feature title
+    required: true
+  problem:
+    type: string
+    description: Problem being solved
+    required: true
+  requirements:
+    type: array
+    description: List of requirements
+    required: true
+  files_likely_affected:
+    type: array
+    description: Files that may need changes
+    required: true
+  existing_code:
+    type: string
+    description: Relevant existing code snippets
+    required: false
+
+output:
+  format: json
+  schema:
+    approach: string, High-level description of the approach
+    changes: array, List of specific changes to make
+    new_files: array, Any new files to create
+    modified_files: array, Existing files to modify
+    test_strategy: string, How to test this change
+    risks: array, Potential issues or edge cases
+---
+You are a software architect. Design a technical implementation for this feature.
+
+## Feature: {{title}}
+
+## Problem
+{{problem}}
+
+## Requirements
+{{requirements}}
+
+## Files Likely Affected
+{{files_likely_affected}}
+
+## Existing Code Context
+{{existing_code}}
+
+## Your Task
+
+Design a clean, minimal implementation:
+
+1. **Approach**: Describe the high-level solution in 2-3 sentences
+2. **Changes**: List each specific code change needed
+   - Be precise: "Add method X to class Y" not "update the code"
+   - Include function signatures where helpful
+3. **New Files**: List any new files with their purpose
+4. **Modified Files**: List files to change and what changes
+5. **Test Strategy**: How should this be tested?
+6. **Risks**: What could go wrong? Edge cases?
+
+Keep it simple. Prefer minimal changes over elegant abstractions.
