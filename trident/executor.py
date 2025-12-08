@@ -112,10 +112,34 @@ def _should_execute(edge: Edge, source_output: dict[str, Any]) -> bool:
         return False
 
 
+def _generate_mock_output(prompt_node: PromptNode) -> dict[str, Any]:
+    """Generate mock output for dry-run mode based on output schema."""
+    if prompt_node.output.format == "text":
+        return {"text": "[DRY RUN] Mock text response"}
+
+    # JSON format - generate mock data matching schema
+    mock: dict[str, Any] = {}
+    for field_name, (field_type, desc) in prompt_node.output.fields.items():
+        if field_type == "string":
+            mock[field_name] = f"[mock_{field_name}]"
+        elif field_type == "number":
+            mock[field_name] = 0
+        elif field_type == "boolean":
+            mock[field_name] = True
+        elif field_type == "array":
+            mock[field_name] = []
+        elif field_type == "object":
+            mock[field_name] = {}
+        else:
+            mock[field_name] = None
+    return mock
+
+
 def run(
     project: Project,
     entrypoint: str | None = None,
     inputs: dict[str, Any] | None = None,
+    dry_run: bool = False,
 ) -> ExecutionResult:
     """Execute a Trident project.
 
@@ -123,6 +147,7 @@ def run(
         project: Loaded project
         entrypoint: Starting node ID (default: first entrypoint)
         inputs: Input data for input nodes
+        dry_run: If True, simulate execution without LLM calls
 
     Returns:
         ExecutionResult with outputs and trace
@@ -198,42 +223,47 @@ def run(
                     raise TridentError(f"No model specified for node {node_id}")
                 node_trace.model = model
 
-                # Get provider
-                provider_result = registry.get_for_model(model)
-                if not provider_result:
-                    raise TridentError(f"No provider found for model: {model}")
-                provider, model_name = provider_result
-
-                # Render template
-                rendered = render(prompt_node.body, gathered)
-
-                # Build completion config
-                config = CompletionConfig(
-                    model=model_name,
-                    temperature=prompt_node.temperature or project.defaults.get("temperature"),
-                    max_tokens=prompt_node.max_tokens or project.defaults.get("max_tokens"),
-                    output_format=prompt_node.output.format,
-                    output_schema=prompt_node.output.fields if prompt_node.output.format == "json" else None,
-                )
-
-                # Execute completion
-                result = provider.complete(rendered, config)
-                node_trace.tokens = {"input": result.input_tokens, "output": result.output_tokens}
-
-                # Parse output
-                if prompt_node.output.format == "json":
-                    try:
-                        parsed = json.loads(result.content)
-                    except json.JSONDecodeError as e:
-                        raise SchemaValidationError(f"Invalid JSON output: {e}")
-
-                    # Validate schema
-                    if prompt_node.output.fields:
-                        _validate_schema(parsed, prompt_node.output.fields)
-
-                    node_trace.output = parsed
+                if dry_run:
+                    # Dry run: skip LLM call, generate mock output
+                    node_trace.output = _generate_mock_output(prompt_node)
+                    node_trace.tokens = {"input": 0, "output": 0}
                 else:
-                    node_trace.output = {"text": result.content}
+                    # Get provider
+                    provider_result = registry.get_for_model(model)
+                    if not provider_result:
+                        raise TridentError(f"No provider found for model: {model}")
+                    provider, model_name = provider_result
+
+                    # Render template
+                    rendered = render(prompt_node.body, gathered)
+
+                    # Build completion config
+                    config = CompletionConfig(
+                        model=model_name,
+                        temperature=prompt_node.temperature or project.defaults.get("temperature"),
+                        max_tokens=prompt_node.max_tokens or project.defaults.get("max_tokens"),
+                        output_format=prompt_node.output.format,
+                        output_schema=prompt_node.output.fields if prompt_node.output.format == "json" else None,
+                    )
+
+                    # Execute completion
+                    result = provider.complete(rendered, config)
+                    node_trace.tokens = {"input": result.input_tokens, "output": result.output_tokens}
+
+                    # Parse output
+                    if prompt_node.output.format == "json":
+                        try:
+                            parsed = json.loads(result.content)
+                        except json.JSONDecodeError as e:
+                            raise SchemaValidationError(f"Invalid JSON output: {e}")
+
+                        # Validate schema
+                        if prompt_node.output.fields:
+                            _validate_schema(parsed, prompt_node.output.fields)
+
+                        node_trace.output = parsed
+                    else:
+                        node_trace.output = {"text": result.content}
 
                 node_outputs[node_id] = node_trace.output
 
