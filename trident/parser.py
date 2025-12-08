@@ -11,6 +11,7 @@ from .errors import ParseError
 @dataclass
 class InputField:
     """Input field definition."""
+
     name: str
     type: str = "string"
     description: str = ""
@@ -21,6 +22,7 @@ class InputField:
 @dataclass
 class OutputSchema:
     """Output schema definition."""
+
     format: str = "text"  # "text" or "json"
     fields: dict[str, tuple[str, str]] = field(default_factory=dict)  # name -> (type, description)
 
@@ -28,6 +30,7 @@ class OutputSchema:
 @dataclass
 class PromptNode:
     """Parsed .prompt file."""
+
     id: str
     name: str = ""
     description: str = ""
@@ -48,21 +51,22 @@ def _parse_value(value: str) -> Any:
         return None
 
     # Strip quotes
-    if (value.startswith('"') and value.endswith('"')) or \
-       (value.startswith("'") and value.endswith("'")):
+    if (value.startswith('"') and value.endswith('"')) or (
+        value.startswith("'") and value.endswith("'")
+    ):
         return value[1:-1]
 
     # Booleans
-    if value.lower() == 'true':
+    if value.lower() == "true":
         return True
-    if value.lower() == 'false':
+    if value.lower() == "false":
         return False
-    if value.lower() == 'null' or value == '~':
+    if value.lower() == "null" or value == "~":
         return None
 
     # Numbers
     try:
-        if '.' in value:
+        if "." in value:
             return float(value)
         return int(value)
     except ValueError:
@@ -77,7 +81,7 @@ def parse_yaml_simple(text: str) -> dict[str, Any]:
     Supports: strings, numbers, booleans, nested dicts, simple lists.
     Does NOT support: multi-line strings, anchors, complex nesting.
     """
-    lines = text.split('\n')
+    lines = text.split("\n")
     return _parse_yaml_block(lines, 0, 0)[0]
 
 
@@ -91,7 +95,7 @@ def _parse_yaml_block(lines: list[str], start: int, min_indent: int) -> tuple[di
         stripped = line.lstrip()
 
         # Skip empty lines and comments
-        if not stripped or stripped.startswith('#'):
+        if not stripped or stripped.startswith("#"):
             i += 1
             continue
 
@@ -102,16 +106,16 @@ def _parse_yaml_block(lines: list[str], start: int, min_indent: int) -> tuple[di
             break
 
         # Handle list items
-        if stripped.startswith('- '):
+        if stripped.startswith("- "):
             # This is a list - find the key and parse as list
             i += 1
             continue
 
         # Handle key: value
-        if ':' in stripped:
-            colon_pos = stripped.index(':')
+        if ":" in stripped:
+            colon_pos = stripped.index(":")
             key = stripped[:colon_pos].strip()
-            value_part = stripped[colon_pos + 1:].strip()
+            value_part = stripped[colon_pos + 1 :].strip()
 
             if value_part:
                 # Inline value
@@ -124,7 +128,7 @@ def _parse_yaml_block(lines: list[str], start: int, min_indent: int) -> tuple[di
                     next_line = lines[i].lstrip()
                     next_indent = len(lines[i]) - len(next_line) if next_line else 0
 
-                    if next_line.startswith('- '):
+                    if next_line.startswith("- "):
                         # It's a list
                         result[key], i = _parse_yaml_list(lines, i, next_indent)
                     elif next_indent > indent:
@@ -150,7 +154,7 @@ def _parse_yaml_list(lines: list[str], start: int, min_indent: int) -> tuple[lis
         line = lines[i]
         stripped = line.lstrip()
 
-        if not stripped or stripped.startswith('#'):
+        if not stripped or stripped.startswith("#"):
             i += 1
             continue
 
@@ -159,7 +163,7 @@ def _parse_yaml_list(lines: list[str], start: int, min_indent: int) -> tuple[lis
         if indent < min_indent:
             break
 
-        if stripped.startswith('- '):
+        if stripped.startswith("- "):
             value = stripped[2:].strip()
             result.append(_parse_value(value))
             i += 1
@@ -171,8 +175,8 @@ def _parse_yaml_list(lines: list[str], start: int, min_indent: int) -> tuple[lis
 
 def parse_schema_field(value: str) -> tuple[str, str]:
     """Parse 'type, description' schema syntax."""
-    if ',' in value:
-        type_part, _, desc = value.partition(',')
+    if "," in value:
+        type_part, _, desc = value.partition(",")
         return type_part.strip(), desc.strip()
     return value.strip(), ""
 
@@ -187,12 +191,12 @@ def parse_prompt_file(path: Path) -> PromptNode:
         <body: template text>
     """
     try:
-        content = path.read_text(encoding='utf-8')
+        content = path.read_text(encoding="utf-8")
     except Exception as e:
         raise ParseError(f"Cannot read {path}: {e}") from e
 
     # Split frontmatter and body
-    parts = re.split(r'^---\s*$', content, maxsplit=2, flags=re.MULTILINE)
+    parts = re.split(r"^---\s*$", content, maxsplit=2, flags=re.MULTILINE)
 
     if len(parts) < 3:
         raise ParseError(f"Invalid .prompt format in {path}: missing frontmatter delimiters")
@@ -206,43 +210,43 @@ def parse_prompt_file(path: Path) -> PromptNode:
     except Exception as e:
         raise ParseError(f"Invalid YAML in {path}: {e}") from e
 
-    if 'id' not in fm:
+    if "id" not in fm:
         raise ParseError(f"Missing required 'id' in {path}")
 
     # Build PromptNode
     node = PromptNode(
-        id=fm['id'],
-        name=fm.get('name', ''),
-        description=fm.get('description', ''),
-        model=fm.get('model'),
-        temperature=fm.get('temperature'),
-        max_tokens=fm.get('max_tokens'),
+        id=fm["id"],
+        name=fm.get("name", ""),
+        description=fm.get("description", ""),
+        model=fm.get("model"),
+        temperature=fm.get("temperature"),
+        max_tokens=fm.get("max_tokens"),
         body=body,
         file_path=path,
     )
 
     # Parse inputs
-    if 'input' in fm and isinstance(fm['input'], dict):
-        for name, spec in fm['input'].items():
+    if "input" in fm and isinstance(fm["input"], dict):
+        for name, spec in fm["input"].items():
             if isinstance(spec, dict):
                 node.inputs[name] = InputField(
                     name=name,
-                    type=spec.get('type', 'string'),
-                    description=spec.get('description', ''),
-                    required=spec.get('required', True),
-                    default=spec.get('default'),
+                    type=spec.get("type", "string"),
+                    description=spec.get("description", ""),
+                    required=spec.get("required", True),
+                    default=spec.get("default"),
                 )
             else:
                 node.inputs[name] = InputField(name=name)
 
     # Parse output
-    if 'output' in fm and isinstance(fm['output'], dict):
-        output_spec = fm['output']
+    if "output" in fm and isinstance(fm["output"], dict):
+        output_spec = fm["output"]
         node.output = OutputSchema(
-            format=output_spec.get('format', 'text'),
+            format=output_spec.get("format", "text"),
         )
-        if 'schema' in output_spec and isinstance(output_spec['schema'], dict):
-            for fname, fspec in output_spec['schema'].items():
+        if "schema" in output_spec and isinstance(output_spec["schema"], dict):
+            for fname, fspec in output_spec["schema"].items():
                 if isinstance(fspec, str):
                     node.output.fields[fname] = parse_schema_field(fspec)
                 else:

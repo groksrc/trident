@@ -3,12 +3,12 @@
 import json
 import os
 import time
-import urllib.request
 import urllib.error
+import urllib.request
 from typing import Any
 
 from ..errors import ProviderError
-from .base import Provider, CompletionConfig, CompletionResult
+from .base import CompletionConfig, CompletionResult
 
 
 class AnthropicProvider:
@@ -108,14 +108,18 @@ class AnthropicProvider:
 
                 # Non-retryable errors
                 if status in (400, 401, 403, 404):
-                    raise ProviderError(f"Anthropic API error {status}: {error_body}", retryable=False)
+                    raise ProviderError(
+                        f"Anthropic API error {status}: {error_body}", retryable=False
+                    )
 
                 # Retryable errors
                 if status in (429, 500, 502, 503, 504):
                     if attempt < 3:
                         time.sleep(delays[attempt])
                         continue
-                    raise ProviderError(f"Anthropic API error {status} after retries: {error_body}", retryable=True)
+                    raise ProviderError(
+                        f"Anthropic API error {status} after retries: {error_body}", retryable=True
+                    )
 
                 raise ProviderError(f"Anthropic API error {status}: {error_body}", retryable=False)
 

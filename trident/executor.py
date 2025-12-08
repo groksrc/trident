@@ -1,9 +1,8 @@
 """DAG execution engine."""
 
 import json
-import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
@@ -11,15 +10,16 @@ from .conditions import evaluate
 from .dag import DAG, build_dag
 from .errors import SchemaValidationError, TridentError
 from .parser import PromptNode
-from .project import Project, Edge
-from .providers import get_registry, setup_providers, CompletionConfig
-from .template import render, get_nested
+from .project import Edge, Project
+from .providers import CompletionConfig, get_registry, setup_providers
+from .template import get_nested, render
 from .tools.python import PythonToolRunner
 
 
 @dataclass
 class NodeTrace:
     """Execution trace for a single node."""
+
     id: str
     start_time: str
     end_time: str | None = None
@@ -33,17 +33,18 @@ class NodeTrace:
     @property
     def input_tokens(self) -> int:
         """Get input token count from tokens dictionary."""
-        return self.tokens.get('input', 0)
+        return self.tokens.get("input", 0)
 
     @property
     def output_tokens(self) -> int:
         """Get output token count from tokens dictionary."""
-        return self.tokens.get('output', 0)
+        return self.tokens.get("output", 0)
 
 
 @dataclass
 class ExecutionTrace:
     """Full execution trace."""
+
     execution_id: str
     start_time: str
     end_time: str | None = None
@@ -53,12 +54,19 @@ class ExecutionTrace:
 @dataclass
 class ExecutionResult:
     """Result of DAG execution."""
+
     outputs: dict[str, Any]
     trace: ExecutionTrace
 
+    def __repr__(self) -> str:
+        """Return string representation showing execution metrics and status."""
+        executed = sum(1 for node in self.trace.nodes if not node.skipped)
+        success = not any(node.error is not None for node in self.trace.nodes)
+        return f"ExecutionResult(executed={executed}, success={success})"
+
 
 def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def _validate_schema(data: dict[str, Any], schema: dict[str, tuple[str, str]]) -> None:
@@ -129,7 +137,7 @@ def _generate_mock_output(prompt_node: PromptNode) -> dict[str, Any]:
 
     # JSON format - generate mock data matching schema
     mock: dict[str, Any] = {}
-    for field_name, (field_type, desc) in prompt_node.output.fields.items():
+    for field_name, (field_type, _desc) in prompt_node.output.fields.items():
         if field_type == "string":
             mock[field_name] = f"[mock_{field_name}]"
         elif field_type == "number":
@@ -253,12 +261,17 @@ def run(
                         temperature=prompt_node.temperature or project.defaults.get("temperature"),
                         max_tokens=prompt_node.max_tokens or project.defaults.get("max_tokens"),
                         output_format=prompt_node.output.format,
-                        output_schema=prompt_node.output.fields if prompt_node.output.format == "json" else None,
+                        output_schema=prompt_node.output.fields
+                        if prompt_node.output.format == "json"
+                        else None,
                     )
 
                     # Execute completion
                     result = provider.complete(rendered, config)
-                    node_trace.tokens = {"input": result.input_tokens, "output": result.output_tokens}
+                    node_trace.tokens = {
+                        "input": result.input_tokens,
+                        "output": result.output_tokens,
+                    }
 
                     # Parse output
                     if prompt_node.output.format == "json":

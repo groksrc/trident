@@ -1,12 +1,11 @@
 """File operation tools for the dev team."""
 
+# Base path for file operations (configurable via environment)
+import os
 import subprocess
 from pathlib import Path
 from typing import Any
 
-
-# Base path for file operations (configurable via environment)
-import os
 WORKSPACE = Path(os.environ.get("TRIDENT_WORKSPACE", ".")).resolve()
 
 
@@ -130,12 +129,14 @@ def search_multiple(terms: list[str] | str, file_pattern: str = "**/*.py") -> di
                         key = (str(file_path), i)
                         if key not in seen:
                             seen.add(key)
-                            all_matches.append({
-                                "term": term,
-                                "file": str(file_path.relative_to(WORKSPACE)),
-                                "line": i,
-                                "text": line.strip()[:200],
-                            })
+                            all_matches.append(
+                                {
+                                    "term": term,
+                                    "file": str(file_path.relative_to(WORKSPACE)),
+                                    "line": i,
+                                    "text": line.strip()[:200],
+                                }
+                            )
             except:
                 continue
 
@@ -163,11 +164,13 @@ def search_files(pattern: str, file_pattern: str = "**/*.py") -> dict[str, Any]:
                 content = file_path.read_text(encoding="utf-8")
                 for i, line in enumerate(content.split("\n"), 1):
                     if pattern in line:
-                        matches.append({
-                            "file": str(file_path.relative_to(WORKSPACE)),
-                            "line": i,
-                            "text": line.strip()[:200],
-                        })
+                        matches.append(
+                            {
+                                "file": str(file_path.relative_to(WORKSPACE)),
+                                "line": i,
+                                "text": line.strip()[:200],
+                            }
+                        )
             except:
                 continue
         return {"matches": matches[:50]}  # Limit results
@@ -278,6 +281,131 @@ def write_files_multi(code_changes: list[dict] | str) -> dict[str, Any]:
         "errors": errors if errors else None,
         "syntax_errors": syntax_errors if syntax_errors else None,
     }
+
+
+def run_lint(fix: bool = True) -> dict[str, Any]:
+    """Run ruff linter and optionally fix issues.
+
+    Args:
+        fix: If True, auto-fix fixable issues
+
+    Returns:
+        {"passed": bool, "output": str, "fixed": int, "remaining": int}
+    """
+    results = {"passed": True, "output": "", "fixed": 0, "remaining": 0}
+
+    try:
+        # First run ruff check with fix if requested
+        check_cmd = ["ruff", "check", "."]
+        if fix:
+            check_cmd.append("--fix")
+
+        result = subprocess.run(
+            check_cmd,
+            cwd=WORKSPACE,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+
+        check_output = result.stdout + result.stderr
+        results["output"] = check_output
+
+        # Count fixed issues (look for "Fixed" in output)
+        if "Fixed" in check_output:
+            import re
+
+            match = re.search(r"Fixed (\d+)", check_output)
+            if match:
+                results["fixed"] = int(match.group(1))
+
+        # Run format
+        format_result = subprocess.run(
+            ["ruff", "format", "."],
+            cwd=WORKSPACE,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+
+        format_output = format_result.stdout + format_result.stderr
+        if format_output.strip():
+            results["output"] += "\n" + format_output
+
+        # Run check again to see remaining issues
+        final_check = subprocess.run(
+            ["ruff", "check", "."],
+            cwd=WORKSPACE,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+
+        if final_check.returncode != 0:
+            results["passed"] = False
+            results["output"] += "\n\nRemaining issues:\n" + final_check.stdout + final_check.stderr
+            # Count remaining issues
+            remaining_lines = [
+                line for line in final_check.stdout.split("\n") if line.strip() and ":" in line
+            ]
+            results["remaining"] = len(remaining_lines)
+
+        return results
+
+    except FileNotFoundError:
+        return {
+            "passed": False,
+            "output": "ruff not found. Install with: pip install ruff",
+            "fixed": 0,
+            "remaining": 0,
+        }
+    except subprocess.TimeoutExpired:
+        return {"passed": False, "output": "Lint timed out", "fixed": 0, "remaining": 0}
+    except Exception as e:
+        return {"passed": False, "output": str(e), "fixed": 0, "remaining": 0}
+
+
+def run_typecheck() -> dict[str, Any]:
+    """Run pyright type checker.
+
+    Returns:
+        {"passed": bool, "output": str, "errors": int}
+    """
+    try:
+        result = subprocess.run(
+            ["pyright", "."],
+            cwd=WORKSPACE,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+
+        output = result.stdout + result.stderr
+        passed = result.returncode == 0
+
+        # Count errors
+        errors = 0
+        import re
+
+        match = re.search(r"(\d+) errors?", output)
+        if match:
+            errors = int(match.group(1))
+
+        return {
+            "passed": passed,
+            "output": output[-3000:],
+            "errors": errors,
+        }
+    except FileNotFoundError:
+        return {
+            "passed": True,  # Don't fail if pyright not installed
+            "output": "pyright not found. Install with: pip install pyright",
+            "errors": 0,
+        }
+    except subprocess.TimeoutExpired:
+        return {"passed": False, "output": "Type check timed out", "errors": 0}
+    except Exception as e:
+        return {"passed": False, "output": str(e), "errors": 0}
 
 
 def run_tests(test_path: str = "tests/") -> dict[str, Any]:

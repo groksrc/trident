@@ -3,9 +3,8 @@
 import argparse
 import json
 import sys
-from pathlib import Path
 
-from . import load_project, run, TridentError, ExitCode
+from . import ExitCode, TridentError, load_project, run
 
 
 def main() -> int:
@@ -22,7 +21,8 @@ def main() -> int:
     run_parser.add_argument("--input-file", "-f", help="Path to JSON input file")
     run_parser.add_argument("--entrypoint", "-e", help="Starting node ID")
     run_parser.add_argument(
-        "--output", "-o",
+        "--output",
+        "-o",
         choices=["json", "text", "pretty"],
         default="pretty",
         help="Output format",
@@ -119,7 +119,7 @@ def cmd_run(args) -> int:
 
     elif args.output == "text":
         if isinstance(result.outputs, dict):
-            for key, value in result.outputs.items():
+            for _key, value in result.outputs.items():
                 if isinstance(value, dict):
                     print(json.dumps(value))
                 else:
@@ -134,7 +134,11 @@ def cmd_run(args) -> int:
             print("Trace:")
             for node in result.trace.nodes:
                 status = "SKIPPED" if node.skipped else "OK"
-                tokens = f" ({node.tokens.get('input', 0)}+{node.tokens.get('output', 0)} tokens)" if node.tokens else ""
+                tokens = (
+                    f" ({node.tokens.get('input', 0)}+{node.tokens.get('output', 0)} tokens)"
+                    if node.tokens
+                    else ""
+                )
                 print(f"  [{status}] {node.id}{tokens}")
             print()
 
@@ -153,13 +157,9 @@ def cmd_list(args) -> int:
 
     if args.format == "json":
         output = {
-            "nodes": [
-                {"id": n.id, "type": n.type}
-                for n in dag.nodes.values()
-            ],
+            "nodes": [{"id": n.id, "type": n.type} for n in dag.nodes.values()],
             "edges": [
-                {"id": e.id, "from": e.from_node, "to": e.to_node}
-                for e in project.edges.values()
+                {"id": e.id, "from": e.from_node, "to": e.to_node} for e in project.edges.values()
             ],
             "execution_order": dag.execution_order,
         }

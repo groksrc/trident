@@ -8,30 +8,28 @@ Supports:
     - Literals: strings, numbers, true, false, null
 """
 
-import ast
 import re
 from typing import Any
 
 from .errors import ConditionError
 from .template import get_nested
 
-
 # Tokenizer patterns
 TOKEN_PATTERNS = [
-    (r'\s+', None),  # Skip whitespace
-    (r'==|!=|<=|>=|<|>', 'OP'),
-    (r'\band\b', 'AND'),
-    (r'\bor\b', 'OR'),
-    (r'\bnot\b', 'NOT'),
-    (r'\btrue\b', 'TRUE'),
-    (r'\bfalse\b', 'FALSE'),
-    (r'\bnull\b', 'NULL'),
-    (r"'[^']*'", 'STRING'),
-    (r'"[^"]*"', 'STRING'),
-    (r'-?\d+\.?\d*', 'NUMBER'),
-    (r'[a-zA-Z_][a-zA-Z0-9_.]*', 'IDENT'),
-    (r'\(', 'LPAREN'),
-    (r'\)', 'RPAREN'),
+    (r"\s+", None),  # Skip whitespace
+    (r"==|!=|<=|>=|<|>", "OP"),
+    (r"\band\b", "AND"),
+    (r"\bor\b", "OR"),
+    (r"\bnot\b", "NOT"),
+    (r"\btrue\b", "TRUE"),
+    (r"\bfalse\b", "FALSE"),
+    (r"\bnull\b", "NULL"),
+    (r"'[^']*'", "STRING"),
+    (r'"[^"]*"', "STRING"),
+    (r"-?\d+\.?\d*", "NUMBER"),
+    (r"[a-zA-Z_][a-zA-Z0-9_.]*", "IDENT"),
+    (r"\(", "LPAREN"),
+    (r"\)", "RPAREN"),
 ]
 
 
@@ -85,30 +83,30 @@ class Parser:
 
     def parse_or(self) -> bool:
         left = self.parse_and()
-        while self.peek() and self.peek()[0] == 'OR':
-            self.consume('OR')
+        while self.peek() and self.peek()[0] == "OR":
+            self.consume("OR")
             right = self.parse_and()
             left = left or right
         return left
 
     def parse_and(self) -> bool:
         left = self.parse_not()
-        while self.peek() and self.peek()[0] == 'AND':
-            self.consume('AND')
+        while self.peek() and self.peek()[0] == "AND":
+            self.consume("AND")
             right = self.parse_not()
             left = left and right
         return left
 
     def parse_not(self) -> bool:
-        if self.peek() and self.peek()[0] == 'NOT':
-            self.consume('NOT')
+        if self.peek() and self.peek()[0] == "NOT":
+            self.consume("NOT")
             return not self.parse_not()
         return self.parse_comparison()
 
     def parse_comparison(self) -> bool:
         left = self.parse_term()
-        if self.peek() and self.peek()[0] == 'OP':
-            op = self.consume('OP')[1]
+        if self.peek() and self.peek()[0] == "OP":
+            op = self.consume("OP")[1]
             right = self.parse_term()
             return self._compare(left, op, right)
         # Truthy check for standalone values
@@ -116,12 +114,18 @@ class Parser:
 
     def _compare(self, left: Any, op: str, right: Any) -> bool:
         match op:
-            case '==': return left == right
-            case '!=': return left != right
-            case '<': return left < right
-            case '>': return left > right
-            case '<=': return left <= right
-            case '>=': return left >= right
+            case "==":
+                return left == right
+            case "!=":
+                return left != right
+            case "<":
+                return left < right
+            case ">":
+                return left > right
+            case "<=":
+                return left <= right
+            case ">=":
+                return left >= right
         raise ConditionError(f"Unknown operator: {op}")
 
     def parse_term(self) -> Any:
@@ -130,28 +134,28 @@ class Parser:
             raise ConditionError("Unexpected end of expression")
 
         match token[0]:
-            case 'LPAREN':
-                self.consume('LPAREN')
+            case "LPAREN":
+                self.consume("LPAREN")
                 result = self.parse_or()
-                self.consume('RPAREN')
+                self.consume("RPAREN")
                 return result
-            case 'STRING':
-                _, value = self.consume('STRING')
+            case "STRING":
+                _, value = self.consume("STRING")
                 return value[1:-1]  # Strip quotes
-            case 'NUMBER':
-                _, value = self.consume('NUMBER')
-                return float(value) if '.' in value else int(value)
-            case 'TRUE':
-                self.consume('TRUE')
+            case "NUMBER":
+                _, value = self.consume("NUMBER")
+                return float(value) if "." in value else int(value)
+            case "TRUE":
+                self.consume("TRUE")
                 return True
-            case 'FALSE':
-                self.consume('FALSE')
+            case "FALSE":
+                self.consume("FALSE")
                 return False
-            case 'NULL':
-                self.consume('NULL')
+            case "NULL":
+                self.consume("NULL")
                 return None
-            case 'IDENT':
-                _, name = self.consume('IDENT')
+            case "IDENT":
+                _, name = self.consume("IDENT")
                 return get_nested(self.context, name)
             case _:
                 raise ConditionError(f"Unexpected token: {token}")

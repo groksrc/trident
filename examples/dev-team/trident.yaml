@@ -1,7 +1,7 @@
 trident: "0.1"
 name: dev-team
 description: Self-improving development team for Trident
-version: "0.2.0"
+version: "0.4.0"
 
 defaults:
   model: anthropic/claude-sonnet-4-20250514
@@ -121,24 +121,55 @@ edges:
     mapping:
       file_contents: content
 
-  # Phase 8: Write, test, analyze
+  # Phase 8: Code Review
   e16:
+    from: clarify
+    to: code_review
+    mapping:
+      title: title
+
+  e17:
+    from: design
+    to: code_review
+    mapping:
+      approach: approach
+      changes: changes
+
+  e18:
     from: implement
-    to: write_changes
+    to: code_review
     mapping:
       code_changes: code_changes
 
-  e17:
+  e19:
+    from: read_for_implement
+    to: code_review
+    mapping:
+      original_file_contents: content
+
+  # Phase 9: Write approved changes
+  e20:
+    from: code_review
+    to: write_changes
+    mapping:
+      code_changes: revised_code_changes
+
+  # Phase 10: Lint and format
+  e21:
     from: write_changes
+    to: run_lint
+
+  e21b:
+    from: run_lint
     to: run_tests
 
-  e18:
+  e22:
     from: clarify
     to: test_runner
     mapping:
       title: title
 
-  e19:
+  e23:
     from: run_tests
     to: test_runner
     mapping:
@@ -147,14 +178,30 @@ edges:
       num_passed: num_passed
       num_failed: num_failed
 
-  e20:
+  e24:
     from: implement
     to: test_runner
     mapping:
       changes_made: summary
 
+  e24b:
+    from: code_review
+    to: test_runner
+    mapping:
+      review_approved: approved
+      review_issues: issues
+      review_severity: severity
+
+  e24c:
+    from: run_lint
+    to: test_runner
+    mapping:
+      lint_passed: passed
+      lint_fixed: fixed
+      lint_remaining: remaining
+
   # Output
-  e21:
+  e25:
     from: test_runner
     to: output
     mapping:
@@ -200,6 +247,12 @@ tools:
     module: file_ops
     function: write_files_multi
     description: Write code changes to files
+
+  run_lint:
+    type: python
+    module: file_ops
+    function: run_lint
+    description: Run ruff linter and formatter with auto-fix
 
   run_tests:
     type: python

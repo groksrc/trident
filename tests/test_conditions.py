@@ -1,7 +1,8 @@
 """Tests for condition evaluation."""
 
 import unittest
-from trident.conditions import evaluate, ConditionError
+
+from trident.conditions import evaluate
 
 
 class TestConditions(unittest.TestCase):

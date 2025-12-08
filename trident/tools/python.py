@@ -3,7 +3,7 @@
 import importlib.util
 import sys
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from ..errors import ToolError
 from ..project import ToolDef
@@ -22,7 +22,7 @@ class PythonToolRunner:
             return self._loaded_modules[module_path]
 
         # Resolve path relative to project tools/
-        if not module_path.endswith('.py'):
+        if not module_path.endswith(".py"):
             module_path = f"{module_path}.py"
 
         full_path = self.project_root / "tools" / module_path
@@ -31,7 +31,7 @@ class PythonToolRunner:
 
         try:
             spec = importlib.util.spec_from_file_location(
-                module_path.replace('.py', '').replace('/', '.'),
+                module_path.replace(".py", "").replace("/", "."),
                 full_path,
             )
             if spec is None or spec.loader is None:

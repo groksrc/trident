@@ -1,15 +1,15 @@
 """DAG construction and validation."""
 
 from dataclasses import dataclass, field
-from typing import Any
 
 from .errors import DAGError
-from .project import Project, Edge
+from .project import Edge, Project
 
 
 @dataclass
 class DAGNode:
     """Node in the execution DAG."""
+
     id: str
     type: str  # "prompt", "input", "output", "tool"
     incoming_edges: list[Edge] = field(default_factory=list)
@@ -19,6 +19,7 @@ class DAGNode:
 @dataclass
 class DAG:
     """Directed Acyclic Graph for execution."""
+
     nodes: dict[str, DAGNode]
     execution_order: list[str]  # Topologically sorted node IDs
 

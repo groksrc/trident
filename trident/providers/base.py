@@ -1,13 +1,13 @@
 """Provider protocol and registry."""
 
-from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 
 
 @dataclass
 class CompletionConfig:
     """Configuration for a completion request."""
+
     model: str
     temperature: float | None = None
     max_tokens: int | None = None
@@ -18,6 +18,7 @@ class CompletionConfig:
 @dataclass
 class CompletionResult:
     """Result from a completion request."""
+
     content: str
     input_tokens: int = 0
     output_tokens: int = 0
@@ -57,9 +58,9 @@ class ProviderRegistry:
         Returns:
             Tuple of (provider, model_name) or None if not found
         """
-        if '/' not in model_id:
+        if "/" not in model_id:
             return None
-        provider_name, model_name = model_id.split('/', 1)
+        provider_name, model_name = model_id.split("/", 1)
         provider = self.get(provider_name)
         if provider:
             return provider, model_name

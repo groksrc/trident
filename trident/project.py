@@ -1,6 +1,5 @@
 """Project and manifest loading."""
 
-import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -12,6 +11,7 @@ from .parser import PromptNode, parse_prompt_file, parse_yaml_simple
 @dataclass
 class EdgeMapping:
     """Field mapping for an edge."""
+
     target_var: str
     source_expr: str
 
@@ -19,6 +19,7 @@ class EdgeMapping:
 @dataclass
 class Edge:
     """Edge connecting two nodes."""
+
     id: str
     from_node: str
     to_node: str
@@ -29,6 +30,7 @@ class Edge:
 @dataclass
 class InputNode:
     """Input node definition."""
+
     id: str = "input"
     schema: dict[str, tuple[str, str]] = field(default_factory=dict)  # name -> (type, desc)
 
@@ -36,6 +38,7 @@ class InputNode:
 @dataclass
 class OutputNode:
     """Output node definition."""
+
     id: str = "output"
     format: str = "json"
 
@@ -43,6 +46,7 @@ class OutputNode:
 @dataclass
 class ToolDef:
     """Tool definition."""
+
     id: str
     type: str  # "python", "shell", "http"
     path: str | None = None
@@ -54,6 +58,7 @@ class ToolDef:
 @dataclass
 class Project:
     """Loaded Trident project."""
+
     name: str
     root: Path
     version: str = "0.1"
@@ -89,84 +94,84 @@ def load_project(path: str | Path) -> Project:
         raise ParseError(f"No trident.yaml found in {root}")
 
     try:
-        manifest_text = manifest_path.read_text(encoding='utf-8')
+        manifest_text = manifest_path.read_text(encoding="utf-8")
         manifest = parse_yaml_simple(manifest_text)
     except Exception as e:
         raise ParseError(f"Cannot parse trident.yaml: {e}") from e
 
     # Validate required fields
-    if 'trident' not in manifest:
+    if "trident" not in manifest:
         raise ValidationError("Missing 'trident' version in manifest")
-    if 'name' not in manifest:
+    if "name" not in manifest:
         raise ValidationError("Missing 'name' in manifest")
 
     project = Project(
-        name=manifest['name'],
+        name=manifest["name"],
         root=root,
-        version=manifest.get('version', '0.1'),
-        description=manifest.get('description', ''),
-        defaults=manifest.get('defaults', {}),
-        entrypoints=manifest.get('entrypoints', []),
+        version=manifest.get("version", "0.1"),
+        description=manifest.get("description", ""),
+        defaults=manifest.get("defaults", {}),
+        entrypoints=manifest.get("entrypoints", []),
     )
 
     # Parse env declarations
-    if 'env' in manifest:
-        project.env = manifest['env']
+    if "env" in manifest:
+        project.env = manifest["env"]
 
     # Parse nodes (input/output/tool)
-    if 'nodes' in manifest:
-        for node_id, node_spec in manifest['nodes'].items():
+    if "nodes" in manifest:
+        for node_id, node_spec in manifest["nodes"].items():
             if not isinstance(node_spec, dict):
                 continue
-            node_type = node_spec.get('type', 'prompt')
-            if node_type == 'input':
+            node_type = node_spec.get("type", "prompt")
+            if node_type == "input":
                 input_node = InputNode(id=node_id)
-                if 'schema' in node_spec:
-                    for fname, fspec in node_spec['schema'].items():
-                        if isinstance(fspec, str) and ',' in fspec:
-                            ftype, fdesc = fspec.split(',', 1)
+                if "schema" in node_spec:
+                    for fname, fspec in node_spec["schema"].items():
+                        if isinstance(fspec, str) and "," in fspec:
+                            ftype, fdesc = fspec.split(",", 1)
                             input_node.schema[fname] = (ftype.strip(), fdesc.strip())
                         else:
                             input_node.schema[fname] = (str(fspec), "")
                 project.input_nodes[node_id] = input_node
-            elif node_type == 'output':
+            elif node_type == "output":
                 project.output_nodes[node_id] = OutputNode(
                     id=node_id,
-                    format=node_spec.get('format', 'json'),
+                    format=node_spec.get("format", "json"),
                 )
-            elif node_type == 'tool':
-                tool_id = node_spec.get('tool', node_id)
+            elif node_type == "tool":
+                tool_id = node_spec.get("tool", node_id)
                 # Tool definition comes from tools section
                 pass
 
     # Parse edges
-    if 'edges' in manifest:
-        for edge_id, edge_spec in manifest['edges'].items():
+    if "edges" in manifest:
+        for edge_id, edge_spec in manifest["edges"].items():
             if not isinstance(edge_spec, dict):
                 continue
             edge = Edge(
                 id=edge_id,
-                from_node=edge_spec.get('from', ''),
-                to_node=edge_spec.get('to', ''),
-                condition=edge_spec.get('condition'),
+                from_node=edge_spec.get("from", ""),
+                to_node=edge_spec.get("to", ""),
+                condition=edge_spec.get("condition"),
             )
-            if 'mapping' in edge_spec:
-                for target, source in edge_spec['mapping'].items():
+            if "mapping" in edge_spec:
+                for target, source in edge_spec["mapping"].items():
                     edge.mappings.append(EdgeMapping(target_var=target, source_expr=str(source)))
             project.edges[edge_id] = edge
 
     # Parse tools
-    if 'tools' in manifest:
-        for tool_id, tool_spec in manifest['tools'].items():
+    if "tools" in manifest:
+        for tool_id, tool_spec in manifest["tools"].items():
             if not isinstance(tool_spec, dict):
                 continue
             project.tools[tool_id] = ToolDef(
                 id=tool_id,
-                type=tool_spec.get('type', 'python'),
-                path=tool_spec.get('path'),
-                module=tool_spec.get('module'),
-                function=tool_spec.get('function'),
-                description=tool_spec.get('description', ''),
+                type=tool_spec.get("type", "python"),
+                path=tool_spec.get("path"),
+                module=tool_spec.get("module"),
+                function=tool_spec.get("function"),
+                description=tool_spec.get("description", ""),
             )
 
     # Discover and parse prompt files
@@ -194,8 +199,7 @@ def load_project(path: str | Path) -> Project:
             project.output_nodes[node_id] = OutputNode(id=node_id)
 
     # Default entrypoint
-    if not project.entrypoints:
-        if project.input_nodes:
-            project.entrypoints = list(project.input_nodes.keys())[:1]
+    if not project.entrypoints and project.input_nodes:
+        project.entrypoints = list(project.input_nodes.keys())[:1]
 
     return project

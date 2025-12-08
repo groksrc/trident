@@ -1,14 +1,15 @@
 """Tests for DAG construction and validation."""
 
 import unittest
-from trident.project import Project, Edge, EdgeMapping, InputNode, OutputNode
-from trident.parser import PromptNode
-from trident.dag import build_dag, DAGError
 from pathlib import Path
+
+from trident.dag import DAGError, build_dag
+from trident.parser import PromptNode
+from trident.project import Edge, InputNode, OutputNode, Project
 
 
 class TestDAG(unittest.TestCase):
-    def _make_project(self, edges: list[tuple[str, str]], prompts: list[str] = None) -> Project:
+    def _make_project(self, edges: list[tuple[str, str]], prompts: list[str] | None = None) -> Project:
         """Create a minimal project with given edges."""
         project = Project(name="test", root=Path("."))
 
@@ -49,12 +50,15 @@ class TestDAG(unittest.TestCase):
         self.assertEqual(dag.execution_order, ["a", "b", "c"])
 
     def test_branching_dag(self):
-        project = self._make_project([
-            ("input", "a"),
-            ("input", "b"),
-            ("a", "output"),
-            ("b", "output"),
-        ], prompts=["a", "b"])
+        project = self._make_project(
+            [
+                ("input", "a"),
+                ("input", "b"),
+                ("a", "output"),
+                ("b", "output"),
+            ],
+            prompts=["a", "b"],
+        )
         dag = build_dag(project)
 
         # input should come first, output last
@@ -62,11 +66,14 @@ class TestDAG(unittest.TestCase):
         self.assertEqual(dag.execution_order[-1], "output")
 
     def test_cycle_detection(self):
-        project = self._make_project([
-            ("a", "b"),
-            ("b", "c"),
-            ("c", "a"),
-        ], prompts=["a", "b", "c"])
+        project = self._make_project(
+            [
+                ("a", "b"),
+                ("b", "c"),
+                ("c", "a"),
+            ],
+            prompts=["a", "b", "c"],
+        )
 
         with self.assertRaises(DAGError) as ctx:
             build_dag(project)

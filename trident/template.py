@@ -33,6 +33,7 @@ def render(template: str, variables: dict[str, Any]) -> str:
 
     Unknown variables are left as-is.
     """
+
     def replace(match: re.Match) -> str:
         key = match.group(1).strip()
         if "." in key:
@@ -44,4 +45,4 @@ def render(template: str, variables: dict[str, Any]) -> str:
             return match.group(0)  # Leave unknown vars as-is
         return str(value)
 
-    return re.sub(r'\{\{\s*([^}]+?)\s*\}\}', replace, template)
+    return re.sub(r"\{\{\s*([^}]+?)\s*\}\}", replace, template)

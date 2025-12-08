@@ -1,0 +1,42 @@
+[project]
+name = "trident"
+version = "0.1.0"
+description = "Zero-dependency Python runtime for LLM agent orchestration"
+requires-python = ">=3.12"
+license = {text = "MIT"}
+authors = [
+    {name = "Drew Cain", email = "groksrc@gmail.com"}
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "F",    # pyflakes
+    "I",    # isort
+    "UP",   # pyupgrade (modernize syntax)
+    "B",    # bugbear (catches common bugs)
+    "SIM",  # simplify
+]
+ignore = [
+    "E501",  # line too long (handled by formatter)
+    "E701",  # multiple statements on one line (we use match/case returns)
+    "E722",  # bare except (acceptable in search loops)
+    "B904",  # raise from (noisy for simple error wrapping)
+    "SIM108", # ternary (sometimes if/else is clearer)
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.pyright]
+pythonVersion = "3.12"
+typeCheckingMode = "basic"
+reportMissingImports = true
+reportMissingTypeStubs = false
+reportOptionalSubscript = false  # We handle None cases at runtime
+reportArgumentType = "warning"   # Reduce noise on complex type mismatches

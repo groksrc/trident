@@ -3,12 +3,12 @@
 import json
 import os
 import time
-import urllib.request
 import urllib.error
+import urllib.request
 from typing import Any
 
 from ..errors import ProviderError
-from .base import Provider, CompletionConfig, CompletionResult
+from .base import CompletionConfig, CompletionResult
 
 
 class OpenAIProvider:
@@ -120,7 +120,9 @@ class OpenAIProvider:
                     if attempt < 3:
                         time.sleep(delays[attempt])
                         continue
-                    raise ProviderError(f"OpenAI API error {status} after retries: {error_body}", retryable=True)
+                    raise ProviderError(
+                        f"OpenAI API error {status} after retries: {error_body}", retryable=True
+                    )
 
                 raise ProviderError(f"OpenAI API error {status}: {error_body}", retryable=False)
 

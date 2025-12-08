@@ -3,7 +3,8 @@
 import tempfile
 import unittest
 from pathlib import Path
-from trident.parser import parse_prompt_file, parse_yaml_simple, ParseError
+
+from trident.parser import ParseError, parse_prompt_file, parse_yaml_simple
 
 
 class TestYamlParser(unittest.TestCase):

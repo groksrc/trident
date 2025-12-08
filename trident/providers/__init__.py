@@ -1,14 +1,14 @@
 """Model providers."""
 
+from .anthropic import AnthropicProvider
 from .base import (
-    Provider,
-    ProviderRegistry,
     CompletionConfig,
     CompletionResult,
+    Provider,
+    ProviderRegistry,
     get_registry,
     register_provider,
 )
-from .anthropic import AnthropicProvider
 from .openai import OpenAIProvider
 
 __all__ = [

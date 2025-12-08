@@ -3,7 +3,8 @@
 import tempfile
 import unittest
 from pathlib import Path
-from trident.project import load_project, ParseError, ValidationError
+
+from trident.project import ParseError, ValidationError, load_project
 
 
 class TestProjectLoading(unittest.TestCase):
@@ -57,9 +58,8 @@ Process {{data}}
             self.assertEqual(project.edges["e1"].to_node, "process")
 
     def test_missing_manifest_raises(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            with self.assertRaises(ParseError):
-                load_project(tmpdir)
+        with tempfile.TemporaryDirectory() as tmpdir, self.assertRaises(ParseError):
+            load_project(tmpdir)
 
     def test_missing_required_field_raises(self):
         with tempfile.TemporaryDirectory() as tmpdir:
