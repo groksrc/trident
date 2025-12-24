@@ -1,7 +1,7 @@
 trident: "0.1"
 name: dev-team
 description: Self-improving development team for Trident
-version: "0.4.0"
+version: "0.5.0"
 
 defaults:
   model: anthropic/claude-sonnet-4-20250514
@@ -154,13 +154,17 @@ edges:
     mapping:
       patches: revised_patches
 
-  # Phase 10: Lint and format
+  # Phase 10: Lint, typecheck, and test
   e21:
     from: apply_patches
     to: run_lint
 
   e21b:
     from: run_lint
+    to: run_typecheck
+
+  e21c:
+    from: run_typecheck
     to: run_tests
 
   e22:
@@ -199,6 +203,13 @@ edges:
       lint_passed: passed
       lint_fixed: fixed
       lint_remaining: remaining
+
+  e24d:
+    from: run_typecheck
+    to: test_runner
+    mapping:
+      typecheck_passed: passed
+      typecheck_errors: errors
 
   # Output
   e25:
@@ -253,6 +264,12 @@ tools:
     module: file_ops
     function: run_lint
     description: Run ruff linter and formatter with auto-fix
+
+  run_typecheck:
+    type: python
+    module: file_ops
+    function: run_typecheck
+    description: Run pyright type checker
 
   run_tests:
     type: python

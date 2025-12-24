@@ -52,6 +52,14 @@ input:
     type: number
     description: Number of lint issues that couldn't be auto-fixed
     required: false
+  typecheck_passed:
+    type: boolean
+    description: Whether type checking passed
+    required: false
+  typecheck_errors:
+    type: number
+    description: Number of type errors found
+    required: false
 
 output:
   format: json
@@ -87,20 +95,27 @@ You are a QA engineer. Analyze these test results.
 - Issues auto-fixed: {{lint_fixed}}
 - Remaining issues: {{lint_remaining}}
 
+## Type Check Results
+- Passed: {{typecheck_passed}}
+- Errors: {{typecheck_errors}}
+
 ## Your Task
 
 1. Check if code review approved the changes
 2. Check if linting passed (note any auto-fixes applied)
-3. Determine if tests passed or failed
-4. If failed, identify the specific failures
-5. Suggest fixes for any failures
-6. Decide if this is ready for human review
+3. Check if type checking passed
+4. Determine if tests passed or failed
+5. If failed, identify the specific failures
+6. Suggest fixes for any failures
+7. Decide if this is ready for human review
 
 Consider the implementation ready for review only if:
 - Code review approved (or had only minor issues)
 - Linting passed (auto-fixes are ok)
+- Type checking passed (0 errors)
 - All tests pass
 
 If code review found major/critical issues, note them even if tests pass.
 If lint has remaining issues, note them.
+If type checking has errors, note them and suggest fixes.
 If tests fail, provide specific, actionable fix suggestions.
