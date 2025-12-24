@@ -105,3 +105,58 @@ def get_downstream_nodes(dag: DAG, node_id: str) -> list[str]:
     if not node:
         return []
     return [edge.to_node for edge in node.outgoing_edges]
+
+
+def _get_node_symbol(node_type: str) -> str:
+    """Get the symbol for a node type.
+
+    Args:
+        node_type: The type of the node
+
+    Returns:
+        Single character symbol in brackets
+    """
+    symbols = {"input": "[I]", "prompt": "[P]", "tool": "[T]", "output": "[O]"}
+    return symbols.get(node_type, "[?]")
+
+
+def visualize_dag(dag: DAG) -> str:
+    """Generate ASCII visualization of the DAG.
+
+    Args:
+        dag: The DAG to visualize
+
+    Returns:
+        ASCII string representation of the DAG
+    """
+    if not dag.nodes:
+        return "No nodes found"
+
+    lines = []
+    lines.append("DAG Visualization:")
+    lines.append("")
+
+    # Show nodes in execution order with connections
+    for i, node_id in enumerate(dag.execution_order):
+        node = dag.nodes[node_id]
+        symbol = _get_node_symbol(node.type)
+
+        # Show the node
+        lines.append(f"{symbol} {node_id}")
+
+        # Show outgoing connections
+        if node.outgoing_edges:
+            for j, edge in enumerate(node.outgoing_edges):
+                is_last_edge = j == len(node.outgoing_edges) - 1
+                connector = "└──" if is_last_edge else "├──"
+                target_symbol = _get_node_symbol(dag.nodes[edge.to_node].type)
+                lines.append(f"  {connector}> {target_symbol} {edge.to_node}")
+
+        # Add spacing between nodes (except for last)
+        if i < len(dag.execution_order) - 1:
+            lines.append("")
+
+    lines.append("")
+    lines.append("Legend: [I] Input, [P] Prompt, [T] Tool, [O] Output")
+
+    return "\n".join(lines)

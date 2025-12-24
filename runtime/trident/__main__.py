@@ -63,6 +63,10 @@ def main() -> int:
         "path", nargs="?", default=".", help="Path to project (default: .)"
     )
 
+    # project graph
+    graph_parser = project_subparsers.add_parser("graph", help="Visualize the project DAG")
+    graph_parser.add_argument("path", nargs="?", default=".", help="Path to project (default: .)")
+
     args = parser.parse_args()
 
     if not args.command:
@@ -82,6 +86,8 @@ def main() -> int:
                 return cmd_project_run(args)
             elif args.subcommand == "validate":
                 return cmd_project_validate(args)
+            elif args.subcommand == "graph":
+                return cmd_project_graph(args)
     except TridentError as e:
         print(f"Error: {e}", file=sys.stderr)
         return e.exit_code
@@ -228,6 +234,17 @@ def cmd_project_validate(args) -> int:
     print(f"  Prompts: {len(project.prompts)}")
     print(f"  Edges: {len(project.edges)}")
     print(f"  Nodes in execution order: {len(dag.execution_order)}")
+    return 0
+
+
+def cmd_project_graph(args) -> int:
+    """Visualize the project DAG."""
+    from .dag import build_dag, visualize_dag
+
+    project = load_project(args.path)
+    dag = build_dag(project)
+
+    print(visualize_dag(dag))
     return 0
 
 
