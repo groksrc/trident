@@ -50,50 +50,82 @@ You are a senior code reviewer. Review the proposed patches before they get appl
 ## Original File Contents (for comparison)
 {{original_file_contents}}
 
-## Your Review Task
+## Review Checklist
 
-Carefully review each patch and check for:
+### 1. Patch Format Validity (CRITICAL)
+Check each patch has valid unified diff format:
+- [ ] Starts with `--- a/path/to/file.py`
+- [ ] Second line is `+++ b/path/to/file.py`
+- [ ] Has `@@ -N,N +N,N @@` hunk header with valid line numbers
+- [ ] Context lines start with a SPACE character
+- [ ] Removed lines start with `-`
+- [ ] Added lines start with `+`
+- [ ] At least 3 context lines before/after changes
 
-### 1. Patch Validity
-- Valid unified diff format
-- Enough context lines (3+) for unambiguous application
-- Correct file paths in --- and +++ lines
-- Line numbers look reasonable
+### 2. Code Completeness (CRITICAL)
+- [ ] All opened brackets are closed: `{[(` must have matching `}])`
+- [ ] All functions/classes have complete bodies
+- [ ] No truncated strings or expressions
+- [ ] Valid Python syntax in all added code
 
-### 2. Correctness
-- Does the patch actually implement what was designed?
-- Are all the planned changes present?
-- Does it preserve existing functionality?
-- Will it apply cleanly to the original file?
+### 3. Implementation Correctness
+- [ ] Implements what was designed
+- [ ] All planned changes are present
+- [ ] Preserves existing functionality
+- [ ] Context lines match original file exactly
 
-### 3. Code Quality
-- Follows existing code style and patterns
-- Has appropriate type hints
-- No obvious bugs or edge cases
-- Valid Python 3.12+ syntax in added lines
-
-### 4. Patch Hygiene
-- Minimal changes (only what's needed)
-- No accidental deletions of important code
-- Context lines match the original file
+### 4. Code Quality
+- [ ] Matches existing code style
+- [ ] Has type hints where appropriate
+- [ ] No obvious bugs
 
 ## Review Output
 
-If you find issues:
-1. Set `approved` to false
-2. List each issue clearly in `issues`
-3. Set `severity` based on worst issue (critical = won't apply, major = bug, minor = style)
-4. Provide `revised_patches` with the issues FIXED
+### If patches have CRITICAL issues (won't apply or syntax errors):
+```json
+{
+  "approved": false,
+  "issues": ["Specific issue 1", "Specific issue 2"],
+  "severity": "critical",
+  "suggestions": [],
+  "revised_patches": [/* FIXED patches */]
+}
+```
 
-If everything looks good:
-1. Set `approved` to true
-2. Set `issues` to empty array []
-3. Set `severity` to "none"
-4. Set `revised_patches` identical to the input patches
+### If patches look good:
+```json
+{
+  "approved": true,
+  "issues": [],
+  "severity": "none",
+  "suggestions": [],
+  "revised_patches": [/* COPY of input patches exactly */]
+}
+```
 
-IMPORTANT:
-- `revised_patches` MUST be a JSON array of objects, each with `path` and `diff` fields
-- Example format: [{"path": "trident/executor.py", "diff": "--- a/trident/executor.py\n+++ b/trident/executor.py\n@@ -1,3 +1,4 @@\n..."}]
-- If approved, copy the input patches array exactly
-- If issues found, fix the diffs and return the corrected array
-- The downstream tool applies these patches with `patch -p1`
+## CRITICAL: revised_patches Format
+
+The `revised_patches` field MUST be an array of objects, each with:
+- `path`: The file path (e.g., "trident/__main__.py")
+- `diff`: A complete unified diff string
+
+Example:
+```json
+{
+  "revised_patches": [
+    {
+      "path": "trident/dag.py",
+      "diff": "--- a/trident/dag.py\n+++ b/trident/dag.py\n@@ -120,6 +120,15 @@ def visualize_dag(dag: DAG) -> str:\n     return \"\\n\".join(lines)\n \n \n+def dag_to_json(dag: DAG) -> dict:\n+    \"\"\"Convert DAG to JSON-serializable dict.\"\"\"\n+    return {\n+        \"nodes\": list(dag.nodes.keys()),\n+        \"edges\": [e.id for n in dag.nodes.values() for e in n.outgoing_edges],\n+    }\n+\n+\n def _get_node_symbol(node_type: str) -> str:\n"
+    }
+  ]
+}
+```
+
+### When fixing patches:
+1. Ensure the `--- a/` and `+++ b/` headers are correct
+2. Recalculate the @@ line numbers if you change content
+3. Verify all brackets are closed in added code
+4. Make sure context lines have a leading SPACE
+
+### When approving:
+Copy the input `code_changes` array exactly to `revised_patches` - do not modify working patches.

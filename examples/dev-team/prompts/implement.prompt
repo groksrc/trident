@@ -42,37 +42,68 @@ You are an expert Python developer. Implement the designed changes using unified
 
 ## Your Task
 
-Generate unified diff patches for the changes. Rules:
+Generate unified diff patches for each file that needs changes.
 
-1. Use standard unified diff format (like `diff -u` or `git diff`)
-2. Include enough context lines (3 before/after) for unambiguous patching
-3. Keep patches minimal - only include the changes needed
-4. Each patch should be applicable with `patch -p1`
+## CRITICAL: Unified Diff Format Rules
 
-## Diff Format Example
+Every patch MUST follow this exact format:
 
 ```
---- a/trident/__main__.py
-+++ b/trident/__main__.py
-@@ -45,6 +45,7 @@
-     run_parser.add_argument("--output", "-o", choices=["json", "text", "pretty"], default="pretty")
-     run_parser.add_argument("--trace", action="store_true", help="Output execution trace")
-     run_parser.add_argument("--dry-run", action="store_true", help="Simulate without LLM calls")
-+    run_parser.add_argument("--verbose", "-v", action="store_true", help="Show detailed output")
- 
-     # project validate
-     validate_parser = project_subparsers.add_parser("validate", help="Validate a Trident project")
+--- a/path/to/file.py
++++ b/path/to/file.py
+@@ -START,COUNT +START,COUNT @@
+ context line (unchanged, starts with space)
+ context line (unchanged, starts with space)
+ context line (unchanged, starts with space)
+-removed line (starts with minus)
++added line (starts with plus)
+ context line (unchanged, starts with space)
+ context line (unchanged, starts with space)
+ context line (unchanged, starts with space)
 ```
+
+### Format Requirements:
+
+1. **File headers**: MUST start with `--- a/` and `+++ b/` followed by the exact file path
+2. **Hunk headers**: MUST be `@@ -OLD_START,OLD_COUNT +NEW_START,NEW_COUNT @@`
+   - OLD_START: Line number where the change begins in the original file
+   - OLD_COUNT: Number of lines in this hunk from the original (context + removed)
+   - NEW_START: Line number where the change begins in the new file  
+   - NEW_COUNT: Number of lines in this hunk in the new file (context + added)
+3. **Context lines**: At least 3 lines before and after each change, starting with a SPACE
+4. **Removed lines**: Start with `-` (minus), no space after
+5. **Added lines**: Start with `+` (plus), no space after
+6. **Line counts must be accurate**: Count the actual lines in each hunk
+
+### Common Mistakes to Avoid:
+
+- ❌ Missing the `a/` and `b/` prefixes in file headers
+- ❌ Wrong line numbers in @@ headers (causes "malformed patch" errors)
+- ❌ Missing space prefix on context lines
+- ❌ Incomplete code (unclosed brackets, missing function bodies)
+- ❌ Tabs instead of spaces for indentation (match the original file)
 
 ## Code Quality Requirements
 
 - All code must be syntactically valid Python 3.12+
-- Use standard library imports unless existing code shows otherwise
-- Include type hints using Python builtins (str, int, list[str], dict[str, Any])
-- Match existing code style exactly
+- Every opened bracket `{[(` must be closed `}])`
+- Every function/class must be complete with proper body
+- Use type hints: `str`, `int`, `list[str]`, `dict[str, Any]`
+- Match existing code style and indentation exactly
+
+## Output Format
 
 Return JSON with:
-- `summary`: Brief description of what was implemented
-- `patches`: Array of objects, each with:
-  - `path`: File path (e.g., "trident/__main__.py")
-  - `diff`: The unified diff as a string
+```json
+{
+  "summary": "Brief description of what was implemented",
+  "patches": [
+    {
+      "path": "trident/module.py",
+      "diff": "--- a/trident/module.py\n+++ b/trident/module.py\n@@ -10,6 +10,7 @@\n context\n context\n context\n+new line\n context\n context\n context\n"
+    }
+  ]
+}
+```
+
+Each patch `diff` field must be a complete, valid unified diff string that can be applied with `patch -p1`.
