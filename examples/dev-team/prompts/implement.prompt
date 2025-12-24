@@ -1,7 +1,7 @@
 ---
 id: implement
 name: Code Implementer
-description: Write the actual code changes
+description: Write the actual code changes as unified diffs
 
 input:
   title:
@@ -24,11 +24,10 @@ input:
 output:
   format: json
   schema:
-    files_written: array, List of file paths that were written
     summary: string, Brief summary of changes made
-    code_changes: array, The actual code changes as objects with path and content
+    patches: array, Unified diff patches for each file
 ---
-You are an expert Python developer. Implement the designed changes.
+You are an expert Python developer. Implement the designed changes using unified diff format.
 
 ## Feature: {{title}}
 
@@ -43,37 +42,37 @@ You are an expert Python developer. Implement the designed changes.
 
 ## Your Task
 
-Write the actual code. IMPORTANT RULES:
+Generate unified diff patches for the changes. Rules:
 
-1. **ALWAYS MODIFY EXISTING FILES** - Never create new files when you can modify existing ones
-2. If the feature request mentions a specific file, MODIFY THAT FILE
-3. If you're adding properties/methods to an existing class, modify the file containing that class
-4. Provide the COMPLETE new file contents (not diffs)
-5. Follow existing code style and patterns exactly
-6. Include docstrings and type hints using standard Python types
-7. Keep changes minimal and focused
-8. CRITICAL: The code MUST be valid Python that passes `python -m py_compile`
+1. Use standard unified diff format (like `diff -u` or `git diff`)
+2. Include enough context lines (3 before/after) for unambiguous patching
+3. Keep patches minimal - only include the changes needed
+4. Each patch should be applicable with `patch -p1`
+
+## Diff Format Example
+
+```
+--- a/trident/__main__.py
++++ b/trident/__main__.py
+@@ -45,6 +45,7 @@
+     run_parser.add_argument("--output", "-o", choices=["json", "text", "pretty"], default="pretty")
+     run_parser.add_argument("--trace", action="store_true", help="Output execution trace")
+     run_parser.add_argument("--dry-run", action="store_true", help="Simulate without LLM calls")
++    run_parser.add_argument("--verbose", "-v", action="store_true", help="Show detailed output")
+ 
+     # project validate
+     validate_parser = project_subparsers.add_parser("validate", help="Validate a Trident project")
+```
 
 ## Code Quality Requirements
 
-- Use only standard library imports unless existing code shows otherwise
-- Type hints must use valid Python syntax (e.g., `str`, `int`, `list[str]`, `dict[str, Any]`)
-- Never use `from typing import str` - str is a builtin
-- Never use `from typing import argparse.Namespace` - use `argparse.Namespace` directly
 - All code must be syntactically valid Python 3.12+
-- Preserve ALL existing code when modifying a file - only add/change what's needed
+- Use standard library imports unless existing code shows otherwise
+- Include type hints using Python builtins (str, int, list[str], dict[str, Any])
+- Match existing code style exactly
 
-## CRITICAL: Modifying Existing Files
-
-When the "Current File Contents" section shows existing code:
-- You MUST modify that file, not create a new one
-- Copy the existing content and add your changes to it
-- Preserve all existing imports, classes, and functions
-- Add new code in the appropriate location within the existing structure
-
-Return the changes as a JSON array in `code_changes`, where each item has:
-- `path`: The EXACT file path from the existing codebase
-- `content`: The complete file contents (existing + new code)
-- `action`: "modify" (prefer this) or "create" (only for truly new files)
-
-Be precise. Write production-quality, syntactically valid code.
+Return JSON with:
+- `summary`: Brief description of what was implemented
+- `patches`: Array of objects, each with:
+  - `path`: File path (e.g., "trident/__main__.py")
+  - `diff`: The unified diff as a string

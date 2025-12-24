@@ -3,6 +3,7 @@
 # Base path for file operations (configurable via environment)
 import os
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -232,6 +233,82 @@ def check_python_syntax(path: str) -> dict[str, Any]:
             return {"valid": False, "error": result.stderr.strip()}
     except Exception as e:
         return {"valid": False, "error": str(e)}
+
+
+def apply_patches(patches: list[dict] | str) -> dict[str, Any]:
+    """Apply unified diff patches to files.
+
+    Args:
+        patches: List of {path, diff} objects or JSON string
+
+    Returns:
+        {"success": bool, "files_patched": list[str], "errors": list[str]}
+    """
+    import json as json_module
+
+    if isinstance(patches, str):
+        try:
+            patches = json_module.loads(patches)
+        except:
+            return {"success": False, "files_patched": [], "errors": ["Invalid JSON"]}
+
+    if not isinstance(patches, list):
+        return {"success": False, "files_patched": [], "errors": ["Expected list of patches"]}
+
+    files_patched = []
+    errors = []
+
+    for patch in patches:
+        if not isinstance(patch, dict):
+            continue
+        
+        path = patch.get("path", "")
+        diff = patch.get("diff", "")
+        
+        if not path or not diff:
+            continue
+
+        full_path = WORKSPACE / path
+        
+        # Write diff to temp file and apply with patch command
+        try:
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.patch', delete=False) as f:
+                f.write(diff)
+                patch_file = f.name
+
+            # Try to apply the patch
+            result = subprocess.run(
+                ["patch", "-p1", "--forward", "-i", patch_file],
+                cwd=WORKSPACE,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+
+            os.unlink(patch_file)
+
+            if result.returncode == 0:
+                files_patched.append(path)
+                # Validate Python syntax for .py files
+                if path.endswith(".py"):
+                    syntax_result = check_python_syntax(path)
+                    if not syntax_result.get("valid"):
+                        errors.append(f"{path}: Syntax error after patching: {syntax_result.get('error')}")
+            else:
+                # If patch fails, try a fallback approach
+                error_msg = result.stderr.strip() or result.stdout.strip()
+                errors.append(f"{path}: Patch failed - {error_msg}")
+
+        except FileNotFoundError:
+            errors.append(f"{path}: 'patch' command not found")
+        except Exception as e:
+            errors.append(f"{path}: {str(e)}")
+
+    return {
+        "success": len(errors) == 0,
+        "files_patched": files_patched,
+        "errors": errors if errors else None,
+    }
 
 
 def write_files_multi(code_changes: list[dict] | str) -> dict[str, Any]:

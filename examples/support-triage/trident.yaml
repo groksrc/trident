@@ -1,7 +1,7 @@
 trident: "0.1"
 name: support-triage
 description: Classify and respond to support tickets
-version: "1.0.0"
+version: "1.0.1"
 
 defaults:
   model: anthropic/claude-sonnet-4-20250514
@@ -23,21 +23,30 @@ nodes:
     format: json
 
 edges:
+  # Input -> classify
   e1:
     from: input
     to: classify
     mapping:
       content: ticket_text
 
+  # Input -> respond (pass original ticket)
+  e1b:
+    from: input
+    to: respond
+    mapping:
+      original: ticket_text
+
+  # classify -> respond (pass classification)
   e2:
     from: classify
     to: respond
     mapping:
-      intent: output.intent
-      confidence: output.confidence
-      original: ticket_text
-    condition: "output.intent != 'spam' and output.confidence > 0.5"
+      intent: intent
+      confidence: confidence
+    condition: "intent != 'spam' and confidence > 0.5"
 
+  # respond -> output
   e3:
     from: respond
     to: output

@@ -101,7 +101,9 @@ class ExecutionResult:
         failed = sum(1 for n in self.trace.nodes if n.error)
 
         lines.append(f"Execution {'succeeded' if self.success else 'FAILED'}")
-        lines.append(f"  Nodes: {succeeded} succeeded, {skipped} skipped, {failed} failed (of {total})")
+        lines.append(
+            f"  Nodes: {succeeded} succeeded, {skipped} skipped, {failed} failed (of {total})"
+        )
 
         if self.error:
             lines.append(f"  Error: {self.error}")
@@ -352,9 +354,7 @@ def _execute_prompt_node(
     # Resolve model (node override > project default)
     model = prompt_node.model or project.defaults.get("model")
     if not model:
-        raise TridentError(
-            "No model specified. Set 'model' in prompt or project defaults."
-        )
+        raise TridentError("No model specified. Set 'model' in prompt or project defaults.")
     node_trace.model = model
 
     if dry_run:
@@ -381,9 +381,7 @@ def _execute_prompt_node(
         temperature=prompt_node.temperature or project.defaults.get("temperature"),
         max_tokens=prompt_node.max_tokens or project.defaults.get("max_tokens"),
         output_format=prompt_node.output.format,
-        output_schema=prompt_node.output.fields
-        if prompt_node.output.format == "json"
-        else None,
+        output_schema=prompt_node.output.fields if prompt_node.output.format == "json" else None,
     )
 
     # Execute completion

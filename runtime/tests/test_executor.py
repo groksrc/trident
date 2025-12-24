@@ -20,11 +20,7 @@ class TestExecutionResult(unittest.TestCase):
         self.assertTrue(result.success)
 
         # Failure case
-        error = NodeExecutionError(
-            node_id="test_node",
-            node_type="prompt",
-            message="Test error"
-        )
+        error = NodeExecutionError(node_id="test_node", node_type="prompt", message="Test error")
         result_with_error = ExecutionResult(outputs={}, trace=trace, error=error)
         self.assertFalse(result_with_error.success)
 
@@ -32,8 +28,12 @@ class TestExecutionResult(unittest.TestCase):
         """ExecutionResult.summary() provides readable output on success."""
         trace = ExecutionTrace(execution_id="test", start_time="2024-01-01T00:00:00Z")
         trace.nodes = [
-            NodeTrace(id="node1", start_time="2024-01-01T00:00:00Z", end_time="2024-01-01T00:00:01Z"),
-            NodeTrace(id="node2", start_time="2024-01-01T00:00:01Z", end_time="2024-01-01T00:00:02Z"),
+            NodeTrace(
+                id="node1", start_time="2024-01-01T00:00:00Z", end_time="2024-01-01T00:00:01Z"
+            ),
+            NodeTrace(
+                id="node2", start_time="2024-01-01T00:00:01Z", end_time="2024-01-01T00:00:02Z"
+            ),
         ]
 
         result = ExecutionResult(outputs={"test": "value"}, trace=trace)
@@ -47,15 +47,18 @@ class TestExecutionResult(unittest.TestCase):
         """ExecutionResult.summary() shows error details on failure."""
         trace = ExecutionTrace(execution_id="test", start_time="2024-01-01T00:00:00Z")
         trace.nodes = [
-            NodeTrace(id="node1", start_time="2024-01-01T00:00:00Z", end_time="2024-01-01T00:00:01Z"),
-            NodeTrace(id="node2", start_time="2024-01-01T00:00:01Z", error="Something broke", error_type="ValueError"),
+            NodeTrace(
+                id="node1", start_time="2024-01-01T00:00:00Z", end_time="2024-01-01T00:00:01Z"
+            ),
+            NodeTrace(
+                id="node2",
+                start_time="2024-01-01T00:00:01Z",
+                error="Something broke",
+                error_type="ValueError",
+            ),
         ]
 
-        error = NodeExecutionError(
-            node_id="node2",
-            node_type="prompt",
-            message="Something broke"
-        )
+        error = NodeExecutionError(node_id="node2", node_type="prompt", message="Something broke")
         result = ExecutionResult(outputs={}, trace=trace, error=error)
         summary = result.summary()
 
@@ -116,9 +119,7 @@ class TestNodeExecutionError(unittest.TestCase):
     def test_error_includes_node_context(self):
         """NodeExecutionError includes node_id and node_type."""
         error = NodeExecutionError(
-            node_id="analyze_code",
-            node_type="prompt",
-            message="Model returned invalid JSON"
+            node_id="analyze_code", node_type="prompt", message="Model returned invalid JSON"
         )
 
         self.assertEqual(error.node_id, "analyze_code")
@@ -130,10 +131,7 @@ class TestNodeExecutionError(unittest.TestCase):
         """NodeExecutionError preserves and displays cause."""
         cause = ValueError("Invalid model name")
         error = NodeExecutionError(
-            node_id="test_node",
-            node_type="prompt",
-            message="Provider error",
-            cause=cause
+            node_id="test_node", node_type="prompt", message="Provider error", cause=cause
         )
 
         self.assertEqual(error.cause, cause)
@@ -146,7 +144,7 @@ class TestNodeExecutionError(unittest.TestCase):
             node_id="test_node",
             node_type="prompt",
             message="Template error",
-            inputs={"code": "def foo(): pass", "lang": "python"}
+            inputs={"code": "def foo(): pass", "lang": "python"},
         )
 
         error_str = str(error)
@@ -158,10 +156,7 @@ class TestNodeExecutionError(unittest.TestCase):
 
         cause = ProviderError("Rate limited", retryable=True)
         error = NodeExecutionError(
-            node_id="test",
-            node_type="prompt",
-            message="API error",
-            cause=cause
+            node_id="test", node_type="prompt", message="API error", cause=cause
         )
 
         self.assertEqual(error.exit_code, ExitCode.PROVIDER_ERROR)

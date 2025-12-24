@@ -6,7 +6,7 @@ version: "0.4.0"
 defaults:
   model: anthropic/claude-sonnet-4-20250514
   temperature: 0.3
-  max_tokens: 4096
+  max_tokens: 8192
 
 entrypoints:
   - input
@@ -139,7 +139,7 @@ edges:
     from: implement
     to: code_review
     mapping:
-      code_changes: code_changes
+      code_changes: patches
 
   e19:
     from: read_for_implement
@@ -150,13 +150,13 @@ edges:
   # Phase 9: Write approved changes
   e20:
     from: code_review
-    to: write_changes
+    to: apply_patches
     mapping:
-      code_changes: revised_code_changes
+      patches: revised_patches
 
   # Phase 10: Lint and format
   e21:
-    from: write_changes
+    from: apply_patches
     to: run_lint
 
   e21b:
@@ -242,11 +242,11 @@ tools:
     function: read_files_multi
     description: Read files for implementation
 
-  write_changes:
+  apply_patches:
     type: python
     module: file_ops
-    function: write_files_multi
-    description: Write code changes to files
+    function: apply_patches
+    description: Apply unified diff patches to files
 
   run_lint:
     type: python

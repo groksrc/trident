@@ -13,6 +13,7 @@ def main() -> int:
         prog="trident",
         description="Trident - Lightweight agent orchestration runtime",
     )
+    parser.add_argument("--version", action="version", version=f"trident {__version__}")
     subparsers = parser.add_subparsers(dest="command", help="Commands")
 
     # Version command
@@ -20,11 +21,15 @@ def main() -> int:
 
     # Project command with subcommands
     project_parser = subparsers.add_parser("project", help="Project commands")
-    project_subparsers = project_parser.add_subparsers(dest="subcommand", help="Project subcommands")
+    project_subparsers = project_parser.add_subparsers(
+        dest="subcommand", help="Project subcommands"
+    )
 
     # project init
     init_parser = project_subparsers.add_parser("init", help="Create a new Trident project")
-    init_parser.add_argument("path", nargs="?", default=".", help="Path to create project (default: .)")
+    init_parser.add_argument(
+        "path", nargs="?", default=".", help="Path to create project (default: .)"
+    )
     init_parser.add_argument(
         "--template",
         "-t",
@@ -51,7 +56,9 @@ def main() -> int:
 
     # project validate
     validate_parser = project_subparsers.add_parser("validate", help="Validate a Trident project")
-    validate_parser.add_argument("path", nargs="?", default=".", help="Path to project (default: .)")
+    validate_parser.add_argument(
+        "path", nargs="?", default=".", help="Path to project (default: .)"
+    )
 
     args = parser.parse_args()
 
@@ -105,7 +112,7 @@ def cmd_project_init(args) -> int:
     project_name = path.name if path.name != "." else Path.cwd().name
 
     # Create manifest
-    manifest_content = f'''trident: "0.1"
+    manifest_content = f"""trident: "0.1"
 name: {project_name}
 description: A Trident project
 
@@ -139,7 +146,7 @@ edges:
     to: output
     mapping:
       result: output
-'''
+"""
     manifest_path.write_text(manifest_content)
 
     # Create prompts directory
@@ -147,7 +154,7 @@ edges:
     prompts_dir.mkdir(exist_ok=True)
 
     # Create example prompt
-    example_prompt = '''---
+    example_prompt = """---
 id: example
 name: Example Prompt
 description: An example prompt that echoes input
@@ -170,7 +177,7 @@ Input: {{content}}
 Respond with a JSON object containing:
 - result: A brief summary or echo of the input
 - length: The character count of the input
-'''
+"""
     (prompts_dir / "example.prompt").write_text(example_prompt)
 
     # Create additional files for standard template

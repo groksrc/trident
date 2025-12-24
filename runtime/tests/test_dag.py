@@ -9,7 +9,9 @@ from trident.project import Edge, InputNode, OutputNode, Project
 
 
 class TestDAG(unittest.TestCase):
-    def _make_project(self, edges: list[tuple[str, str]], prompts: list[str] | None = None) -> Project:
+    def _make_project(
+        self, edges: list[tuple[str, str]], prompts: list[str] | None = None
+    ) -> Project:
         """Create a minimal project with given edges."""
         project = Project(name="test", root=Path("."))
 
