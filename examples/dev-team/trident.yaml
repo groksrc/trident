@@ -1,7 +1,7 @@
 trident: "0.1"
 name: dev-team
 description: Self-improving development team for Trident
-version: "0.5.0"
+version: "0.6.0"
 
 defaults:
   model: anthropic/claude-sonnet-4-20250514
@@ -147,80 +147,79 @@ edges:
     mapping:
       original_file_contents: content
 
-  # Phase 9: Write approved changes
+  # Phase 9: Validate in sandbox BEFORE applying
   e20:
     from: code_review
-    to: apply_patches
+    to: validate_patches
     mapping:
       patches: revised_patches
 
-  # Phase 10: Lint, typecheck, and test
+  # Phase 10: Validation gate decides whether to proceed
   e21:
-    from: apply_patches
-    to: run_lint
-
-  e21b:
-    from: run_lint
-    to: run_typecheck
-
-  e21c:
-    from: run_typecheck
-    to: run_tests
-
-  e22:
     from: clarify
-    to: test_runner
+    to: validation_gate
     mapping:
       title: title
 
-  e23:
-    from: run_tests
-    to: test_runner
-    mapping:
-      test_output: output
-      passed: passed
-      num_passed: num_passed
-      num_failed: num_failed
-
-  e24:
-    from: implement
-    to: test_runner
-    mapping:
-      changes_made: summary
-
-  e24b:
+  e22:
     from: code_review
-    to: test_runner
+    to: validation_gate
     mapping:
+      patches: revised_patches
       review_approved: approved
       review_issues: issues
       review_severity: severity
 
-  e24c:
-    from: run_lint
-    to: test_runner
+  e23:
+    from: validate_patches
+    to: validation_gate
     mapping:
-      lint_passed: passed
-      lint_fixed: fixed
-      lint_remaining: remaining
+      validation_result: .
 
-  e24d:
-    from: run_typecheck
-    to: test_runner
+  # Phase 11: Apply patches only if validation passed
+  e24:
+    from: validation_gate
+    to: apply_patches
+    condition: proceed == true
     mapping:
-      typecheck_passed: passed
-      typecheck_errors: errors
+      patches: patches_to_apply
 
-  # Output
+  # Phase 12: Run final lint on applied changes (for any auto-fixes)
   e25:
-    from: test_runner
+    from: apply_patches
+    to: run_lint
+
+  # Output: Success path (validation passed, patches applied)
+  e26:
+    from: validation_gate
     to: output
+    condition: proceed == true
     mapping:
       status: status
       summary: summary
-      failures: failures
+
+  e27:
+    from: apply_patches
+    to: output
+    mapping:
+      files_patched: files_patched
+
+  e28:
+    from: run_lint
+    to: output
+    mapping:
+      lint_fixed: fixed
+
+  # Output: Failure path (validation failed, no patches applied)
+  e29:
+    from: validation_gate
+    to: output
+    condition: proceed == false
+    mapping:
+      status: status
+      summary: summary
+      errors: errors
       suggested_fixes: suggested_fixes
-      ready_for_review: ready_for_review
 
 tools:
   list_structure:
@@ -253,29 +252,23 @@ tools:
     function: read_files_multi
     description: Read files for implementation
 
+  validate_patches:
+    type: python
+    module: file_ops
+    function: validate_patches
+    description: Validate patches in a sandbox (lint, typecheck, tests) without modifying workspace
+
   apply_patches:
     type: python
     module: file_ops
     function: apply_patches
-    description: Apply unified diff patches to files
+    description: Apply unified diff patches to files (only called after validation passes)
 
   run_lint:
     type: python
     module: file_ops
     function: run_lint
     description: Run ruff linter and formatter with auto-fix
-
-  run_typecheck:
-    type: python
-    module: file_ops
-    function: run_typecheck
-    description: Run pyright type checker
-
-  run_tests:
-    type: python
-    module: file_ops
-    function: run_tests
-    description: Run the test suite
 
 env:
   ANTHROPIC_API_KEY:

@@ -1,7 +1,10 @@
 """File operation tools for the dev team."""
 
 # Base path for file operations (configurable via environment)
+import json as json_module
 import os
+import re
+import shutil
 import subprocess
 import tempfile
 from pathlib import Path
@@ -206,23 +209,25 @@ def read_files_multi(files: list[str] | str) -> dict[str, Any]:
     }
 
 
-def check_python_syntax(path: str) -> dict[str, Any]:
+def check_python_syntax(path: str, workspace: Path | None = None) -> dict[str, Any]:
     """Check if a Python file has valid syntax.
 
     Args:
         path: Path relative to workspace
+        workspace: Optional workspace override (for sandbox validation)
 
     Returns:
         {"valid": bool, "error": str | None}
     """
-    full_path = WORKSPACE / path
+    ws = workspace or WORKSPACE
+    full_path = ws / path
     if not full_path.exists():
         return {"valid": False, "error": f"File not found: {path}"}
 
     try:
         result = subprocess.run(
             ["python", "-m", "py_compile", str(full_path)],
-            cwd=WORKSPACE,
+            cwd=ws,
             capture_output=True,
             text=True,
             timeout=10,
@@ -235,51 +240,43 @@ def check_python_syntax(path: str) -> dict[str, Any]:
         return {"valid": False, "error": str(e)}
 
 
-def apply_patches(patches: list[dict] | str) -> dict[str, Any]:
-    """Apply unified diff patches to files.
+def _apply_patches_to_workspace(
+    patches: list[dict], workspace: Path
+) -> dict[str, Any]:
+    """Apply patches to a specific workspace directory.
 
     Args:
-        patches: List of {path, diff} objects or JSON string
+        patches: List of {path, diff} objects
+        workspace: Target workspace directory
 
     Returns:
         {"success": bool, "files_patched": list[str], "errors": list[str]}
     """
-    import json as json_module
-
-    if isinstance(patches, str):
-        try:
-            patches = json_module.loads(patches)
-        except:
-            return {"success": False, "files_patched": [], "errors": ["Invalid JSON"]}
-
-    if not isinstance(patches, list):
-        return {"success": False, "files_patched": [], "errors": ["Expected list of patches"]}
-
     files_patched = []
     errors = []
 
     for patch in patches:
         if not isinstance(patch, dict):
             continue
-        
+
         path = patch.get("path", "")
         diff = patch.get("diff", "")
-        
+
         if not path or not diff:
             continue
 
-        full_path = WORKSPACE / path
-        
         # Write diff to temp file and apply with patch command
         try:
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.patch', delete=False) as f:
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".patch", delete=False
+            ) as f:
                 f.write(diff)
                 patch_file = f.name
 
             # Try to apply the patch
             result = subprocess.run(
                 ["patch", "-p1", "--forward", "-i", patch_file],
-                cwd=WORKSPACE,
+                cwd=workspace,
                 capture_output=True,
                 text=True,
                 timeout=30,
@@ -291,11 +288,12 @@ def apply_patches(patches: list[dict] | str) -> dict[str, Any]:
                 files_patched.append(path)
                 # Validate Python syntax for .py files
                 if path.endswith(".py"):
-                    syntax_result = check_python_syntax(path)
+                    syntax_result = check_python_syntax(path, workspace)
                     if not syntax_result.get("valid"):
-                        errors.append(f"{path}: Syntax error after patching: {syntax_result.get('error')}")
+                        errors.append(
+                            f"{path}: Syntax error after patching: {syntax_result.get('error')}"
+                        )
             else:
-                # If patch fails, try a fallback approach
                 error_msg = result.stderr.strip() or result.stdout.strip()
                 errors.append(f"{path}: Patch failed - {error_msg}")
 
@@ -311,6 +309,334 @@ def apply_patches(patches: list[dict] | str) -> dict[str, Any]:
     }
 
 
+def _run_lint_in_workspace(workspace: Path, fix: bool = True) -> dict[str, Any]:
+    """Run ruff linter in a specific workspace.
+
+    Args:
+        workspace: Target workspace directory
+        fix: If True, auto-fix fixable issues
+
+    Returns:
+        {"passed": bool, "output": str, "fixed": int, "remaining": int}
+    """
+    results = {"passed": True, "output": "", "fixed": 0, "remaining": 0}
+
+    try:
+        check_cmd = ["ruff", "check", "."]
+        if fix:
+            check_cmd.append("--fix")
+
+        result = subprocess.run(
+            check_cmd,
+            cwd=workspace,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+
+        check_output = result.stdout + result.stderr
+        results["output"] = check_output
+
+        if "Fixed" in check_output:
+            match = re.search(r"Fixed (\d+)", check_output)
+            if match:
+                results["fixed"] = int(match.group(1))
+
+        # Run format
+        format_result = subprocess.run(
+            ["ruff", "format", "."],
+            cwd=workspace,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+
+        format_output = format_result.stdout + format_result.stderr
+        if format_output.strip():
+            results["output"] += "\n" + format_output
+
+        # Run check again to see remaining issues
+        final_check = subprocess.run(
+            ["ruff", "check", "."],
+            cwd=workspace,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+
+        if final_check.returncode != 0:
+            results["passed"] = False
+            results["output"] += (
+                "\n\nRemaining issues:\n" + final_check.stdout + final_check.stderr
+            )
+            remaining_lines = [
+                line
+                for line in final_check.stdout.split("\n")
+                if line.strip() and ":" in line
+            ]
+            results["remaining"] = len(remaining_lines)
+
+        return results
+
+    except FileNotFoundError:
+        return {
+            "passed": False,
+            "output": "ruff not found. Install with: pip install ruff",
+            "fixed": 0,
+            "remaining": 0,
+        }
+    except subprocess.TimeoutExpired:
+        return {"passed": False, "output": "Lint timed out", "fixed": 0, "remaining": 0}
+    except Exception as e:
+        return {"passed": False, "output": str(e), "fixed": 0, "remaining": 0}
+
+
+def _run_typecheck_in_workspace(workspace: Path) -> dict[str, Any]:
+    """Run pyright type checker in a specific workspace.
+
+    Args:
+        workspace: Target workspace directory
+
+    Returns:
+        {"passed": bool, "output": str, "errors": int}
+    """
+    try:
+        result = subprocess.run(
+            ["pyright", "."],
+            cwd=workspace,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+
+        output = result.stdout + result.stderr
+        passed = result.returncode == 0
+
+        errors = 0
+        match = re.search(r"(\d+) errors?", output)
+        if match:
+            errors = int(match.group(1))
+
+        return {
+            "passed": passed,
+            "output": output[-3000:],
+            "errors": errors,
+        }
+    except FileNotFoundError:
+        return {
+            "passed": True,
+            "output": "pyright not found. Install with: pip install pyright",
+            "errors": 0,
+        }
+    except subprocess.TimeoutExpired:
+        return {"passed": False, "output": "Type check timed out", "errors": 0}
+    except Exception as e:
+        return {"passed": False, "output": str(e), "errors": 0}
+
+
+def _run_tests_in_workspace(
+    workspace: Path, test_path: str = "tests/"
+) -> dict[str, Any]:
+    """Run tests in a specific workspace.
+
+    Args:
+        workspace: Target workspace directory
+        test_path: Path to tests relative to workspace
+
+    Returns:
+        {"passed": bool, "output": str, "num_passed": int, "num_failed": int}
+    """
+    try:
+        result = subprocess.run(
+            ["python", "-m", "pytest", test_path, "-v"],
+            cwd=workspace,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+
+        output = result.stdout + result.stderr
+        passed = result.returncode == 0
+
+        # Parse test counts - pytest format
+        num_passed = len(re.findall(r" PASSED", output))
+        num_failed = len(re.findall(r" FAILED", output)) + len(
+            re.findall(r" ERROR", output)
+        )
+
+        return {
+            "passed": passed,
+            "output": output[-3000:],
+            "num_passed": num_passed,
+            "num_failed": num_failed,
+        }
+    except subprocess.TimeoutExpired:
+        return {
+            "passed": False,
+            "output": "Tests timed out",
+            "num_passed": 0,
+            "num_failed": 0,
+        }
+    except Exception as e:
+        return {"passed": False, "output": str(e), "num_passed": 0, "num_failed": 0}
+
+
+def validate_patches(patches: list[dict] | str) -> dict[str, Any]:
+    """Validate patches in a sandbox before applying to the real workspace.
+
+    Creates a temporary copy of the workspace, applies patches, runs lint/typecheck/tests,
+    and reports results WITHOUT modifying the actual workspace.
+
+    Args:
+        patches: List of {path, diff} objects or JSON string
+
+    Returns:
+        {
+            "valid": bool,              # True if all checks pass
+            "patch_result": {...},      # Result of applying patches
+            "lint_result": {...},       # Result of linting
+            "typecheck_result": {...},  # Result of type checking
+            "test_result": {...},       # Result of running tests
+            "summary": str,             # Human-readable summary
+            "errors": list[str],        # All errors encountered
+        }
+    """
+    if isinstance(patches, str):
+        try:
+            patches = json_module.loads(patches)
+        except:
+            return {
+                "valid": False,
+                "patch_result": None,
+                "lint_result": None,
+                "typecheck_result": None,
+                "test_result": None,
+                "summary": "Invalid JSON in patches",
+                "errors": ["Invalid JSON"],
+            }
+
+    if not isinstance(patches, list):
+        return {
+            "valid": False,
+            "patch_result": None,
+            "lint_result": None,
+            "typecheck_result": None,
+            "test_result": None,
+            "summary": "Expected list of patches",
+            "errors": ["Expected list of patches"],
+        }
+
+    all_errors: list[str] = []
+    sandbox_dir = None
+
+    try:
+        # Create a temporary copy of the workspace
+        sandbox_dir = Path(tempfile.mkdtemp(prefix="trident_sandbox_"))
+
+        # Copy workspace to sandbox (excluding .git, .venv, __pycache__, node_modules)
+        def ignore_patterns(directory: str, files: list[str]) -> list[str]:
+            return [
+                f
+                for f in files
+                if f in {".git", ".venv", "venv", "__pycache__", "node_modules", ".eggs"}
+            ]
+
+        shutil.copytree(WORKSPACE, sandbox_dir / "workspace", ignore=ignore_patterns, dirs_exist_ok=True)
+        sandbox_workspace = sandbox_dir / "workspace"
+
+        # Step 1: Apply patches in sandbox
+        patch_result = _apply_patches_to_workspace(patches, sandbox_workspace)
+        if not patch_result["success"]:
+            all_errors.extend(patch_result.get("errors") or [])
+
+        # Step 2: Run lint (with auto-fix in sandbox)
+        lint_result = _run_lint_in_workspace(sandbox_workspace, fix=True)
+        if not lint_result["passed"]:
+            all_errors.append(f"Lint failed: {lint_result.get('remaining', 0)} issues remaining")
+
+        # Step 3: Run typecheck
+        typecheck_result = _run_typecheck_in_workspace(sandbox_workspace)
+        if not typecheck_result["passed"]:
+            all_errors.append(f"Typecheck failed: {typecheck_result.get('errors', 0)} errors")
+
+        # Step 4: Run tests
+        test_result = _run_tests_in_workspace(sandbox_workspace)
+        if not test_result["passed"]:
+            all_errors.append(
+                f"Tests failed: {test_result.get('num_failed', 0)} failures"
+            )
+
+        # Build summary
+        valid = (
+            patch_result["success"]
+            and lint_result["passed"]
+            and typecheck_result["passed"]
+            and test_result["passed"]
+        )
+
+        if valid:
+            summary = (
+                f"✅ All checks passed. "
+                f"Patches applied to {len(patch_result.get('files_patched', []))} files. "
+                f"Lint: {lint_result.get('fixed', 0)} auto-fixed. "
+                f"Types: OK. "
+                f"Tests: {test_result.get('num_passed', 0)} passed."
+            )
+        else:
+            summary = f"❌ Validation failed: {'; '.join(all_errors)}"
+
+        return {
+            "valid": valid,
+            "patch_result": patch_result,
+            "lint_result": lint_result,
+            "typecheck_result": typecheck_result,
+            "test_result": test_result,
+            "summary": summary,
+            "errors": all_errors if all_errors else None,
+        }
+
+    except Exception as e:
+        return {
+            "valid": False,
+            "patch_result": None,
+            "lint_result": None,
+            "typecheck_result": None,
+            "test_result": None,
+            "summary": f"Sandbox validation error: {str(e)}",
+            "errors": [str(e)],
+        }
+
+    finally:
+        # Clean up sandbox
+        if sandbox_dir and sandbox_dir.exists():
+            shutil.rmtree(sandbox_dir, ignore_errors=True)
+
+
+def apply_patches(patches: list[dict] | str) -> dict[str, Any]:
+    """Apply unified diff patches to files.
+
+    Args:
+        patches: List of {path, diff} objects or JSON string
+
+    Returns:
+        {"success": bool, "files_patched": list[str], "errors": list[str]}
+    """
+    if isinstance(patches, str):
+        try:
+            patches = json_module.loads(patches)
+        except:
+            return {"success": False, "files_patched": [], "errors": ["Invalid JSON"]}
+
+    if not isinstance(patches, list):
+        return {
+            "success": False,
+            "files_patched": [],
+            "errors": ["Expected list of patches"],
+        }
+
+    return _apply_patches_to_workspace(patches, WORKSPACE)
+
+
 def write_files_multi(code_changes: list[dict] | str) -> dict[str, Any]:
     """Write multiple files from code changes and validate Python syntax.
 
@@ -320,8 +646,6 @@ def write_files_multi(code_changes: list[dict] | str) -> dict[str, Any]:
     Returns:
         {"success": bool, "files_written": list[str], "syntax_errors": list[str]}
     """
-    import json as json_module
-
     if isinstance(code_changes, str):
         try:
             code_changes = json_module.loads(code_changes)
@@ -329,7 +653,11 @@ def write_files_multi(code_changes: list[dict] | str) -> dict[str, Any]:
             return {"success": False, "files_written": [], "error": "Invalid JSON"}
 
     if not isinstance(code_changes, list):
-        return {"success": False, "files_written": [], "error": "Expected list of changes"}
+        return {
+            "success": False,
+            "files_written": [],
+            "error": "Expected list of changes",
+        }
 
     files_written = []
     errors = []
@@ -369,77 +697,7 @@ def run_lint(fix: bool = True) -> dict[str, Any]:
     Returns:
         {"passed": bool, "output": str, "fixed": int, "remaining": int}
     """
-    results = {"passed": True, "output": "", "fixed": 0, "remaining": 0}
-
-    try:
-        # First run ruff check with fix if requested
-        check_cmd = ["ruff", "check", "."]
-        if fix:
-            check_cmd.append("--fix")
-
-        result = subprocess.run(
-            check_cmd,
-            cwd=WORKSPACE,
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
-
-        check_output = result.stdout + result.stderr
-        results["output"] = check_output
-
-        # Count fixed issues (look for "Fixed" in output)
-        if "Fixed" in check_output:
-            import re
-
-            match = re.search(r"Fixed (\d+)", check_output)
-            if match:
-                results["fixed"] = int(match.group(1))
-
-        # Run format
-        format_result = subprocess.run(
-            ["ruff", "format", "."],
-            cwd=WORKSPACE,
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
-
-        format_output = format_result.stdout + format_result.stderr
-        if format_output.strip():
-            results["output"] += "\n" + format_output
-
-        # Run check again to see remaining issues
-        final_check = subprocess.run(
-            ["ruff", "check", "."],
-            cwd=WORKSPACE,
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
-
-        if final_check.returncode != 0:
-            results["passed"] = False
-            results["output"] += "\n\nRemaining issues:\n" + final_check.stdout + final_check.stderr
-            # Count remaining issues
-            remaining_lines = [
-                line for line in final_check.stdout.split("\n") if line.strip() and ":" in line
-            ]
-            results["remaining"] = len(remaining_lines)
-
-        return results
-
-    except FileNotFoundError:
-        return {
-            "passed": False,
-            "output": "ruff not found. Install with: pip install ruff",
-            "fixed": 0,
-            "remaining": 0,
-        }
-    except subprocess.TimeoutExpired:
-        return {"passed": False, "output": "Lint timed out", "fixed": 0, "remaining": 0}
-    except Exception as e:
-        return {"passed": False, "output": str(e), "fixed": 0, "remaining": 0}
+    return _run_lint_in_workspace(WORKSPACE, fix)
 
 
 def run_typecheck() -> dict[str, Any]:
@@ -448,41 +706,7 @@ def run_typecheck() -> dict[str, Any]:
     Returns:
         {"passed": bool, "output": str, "errors": int}
     """
-    try:
-        result = subprocess.run(
-            ["pyright", "."],
-            cwd=WORKSPACE,
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
-
-        output = result.stdout + result.stderr
-        passed = result.returncode == 0
-
-        # Count errors
-        errors = 0
-        import re
-
-        match = re.search(r"(\d+) errors?", output)
-        if match:
-            errors = int(match.group(1))
-
-        return {
-            "passed": passed,
-            "output": output[-3000:],
-            "errors": errors,
-        }
-    except FileNotFoundError:
-        return {
-            "passed": True,  # Don't fail if pyright not installed
-            "output": "pyright not found. Install with: pip install pyright",
-            "errors": 0,
-        }
-    except subprocess.TimeoutExpired:
-        return {"passed": False, "output": "Type check timed out", "errors": 0}
-    except Exception as e:
-        return {"passed": False, "output": str(e), "errors": 0}
+    return _run_typecheck_in_workspace(WORKSPACE)
 
 
 def run_tests(test_path: str = "tests/") -> dict[str, Any]:
@@ -494,29 +718,4 @@ def run_tests(test_path: str = "tests/") -> dict[str, Any]:
     Returns:
         {"passed": bool, "output": str, "num_passed": int, "num_failed": int}
     """
-    try:
-        result = subprocess.run(
-            ["python", "-m", "unittest", "discover", test_path, "-v"],
-            cwd=WORKSPACE,
-            capture_output=True,
-            text=True,
-            timeout=120,
-        )
-
-        output = result.stdout + result.stderr
-        passed = result.returncode == 0
-
-        # Parse test counts from output
-        num_passed = output.count(" ... ok")
-        num_failed = output.count(" ... FAIL") + output.count(" ... ERROR")
-
-        return {
-            "passed": passed,
-            "output": output[-3000:],  # Last 3000 chars
-            "num_passed": num_passed,
-            "num_failed": num_failed,
-        }
-    except subprocess.TimeoutExpired:
-        return {"passed": False, "output": "Tests timed out", "num_passed": 0, "num_failed": 0}
-    except Exception as e:
-        return {"passed": False, "output": str(e), "num_passed": 0, "num_failed": 0}
+    return _run_tests_in_workspace(WORKSPACE, test_path)
