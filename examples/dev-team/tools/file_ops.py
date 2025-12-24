@@ -719,3 +719,96 @@ def run_tests(test_path: str = "tests/") -> dict[str, Any]:
         {"passed": bool, "output": str, "num_passed": int, "num_failed": int}
     """
     return _run_tests_in_workspace(WORKSPACE, test_path)
+
+
+def validation_gate(
+    patches: list[dict] | str,
+    validation_result: dict[str, Any],
+    review_approved: bool = True,
+    review_severity: str = "none",
+) -> dict[str, Any]:
+    """Pure function to decide whether to apply patches based on validation results.
+
+    This is a deterministic gate - no LLM needed. The decision is:
+    - If validation passed AND review approved (or minor issues only) -> proceed
+    - Otherwise -> don't proceed, return errors
+
+    Args:
+        patches: The patches that were validated
+        validation_result: Result from validate_patches tool
+        review_approved: Whether code review approved
+        review_severity: Severity of review issues (none/minor/major/critical)
+
+    Returns:
+        {
+            "proceed": bool,
+            "patches_to_apply": list[dict] | None,
+            "status": str,  # "success" | "validation_failed" | "review_blocked"
+            "summary": str,
+            "errors": list[str] | None,
+            "lint_output": str | None,
+            "typecheck_output": str | None,
+            "test_output": str | None,
+        }
+    """
+    if isinstance(patches, str):
+        try:
+            patches = json_module.loads(patches)
+        except:
+            return {
+                "proceed": False,
+                "patches_to_apply": None,
+                "status": "validation_failed",
+                "summary": "Invalid patches JSON",
+                "errors": ["Invalid patches JSON"],
+                "lint_output": None,
+                "typecheck_output": None,
+                "test_output": None,
+            }
+
+    # Check review status - block on major/critical issues
+    review_dominated = review_severity in ("major", "critical")
+    if not review_approved and review_dominated:
+        return {
+            "proceed": False,
+            "patches_to_apply": None,
+            "status": "review_blocked",
+            "summary": f"Code review blocked: {review_severity} issues found",
+            "errors": [f"Code review has {review_severity} issues that must be addressed"],
+            "lint_output": None,
+            "typecheck_output": None,
+            "test_output": None,
+        }
+
+    # Check validation result
+    validation_passed = validation_result.get("valid", False)
+
+    if validation_passed:
+        return {
+            "proceed": True,
+            "patches_to_apply": patches,
+            "status": "success",
+            "summary": validation_result.get("summary", "Validation passed"),
+            "errors": None,
+            "lint_output": None,
+            "typecheck_output": None,
+            "test_output": None,
+        }
+
+    # Validation failed - collect detailed error info
+    errors = validation_result.get("errors") or []
+    
+    lint_result = validation_result.get("lint_result") or {}
+    typecheck_result = validation_result.get("typecheck_result") or {}
+    test_result = validation_result.get("test_result") or {}
+
+    return {
+        "proceed": False,
+        "patches_to_apply": None,
+        "status": "validation_failed",
+        "summary": validation_result.get("summary", "Validation failed"),
+        "errors": errors,
+        "lint_output": lint_result.get("output") if not lint_result.get("passed") else None,
+        "typecheck_output": typecheck_result.get("output") if not typecheck_result.get("passed") else None,
+        "test_output": test_result.get("output") if not test_result.get("passed") else None,
+    }

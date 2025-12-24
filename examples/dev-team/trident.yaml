@@ -1,7 +1,7 @@
 trident: "0.1"
 name: dev-team
 description: Self-improving development team for Trident
-version: "0.6.0"
+version: "0.7.0"
 
 defaults:
   model: anthropic/claude-sonnet-4-20250514
@@ -154,30 +154,23 @@ edges:
     mapping:
       patches: revised_patches
 
-  # Phase 10: Validation gate decides whether to proceed
+  # Phase 10: Validation gate (pure function) decides whether to proceed
   e21:
-    from: clarify
-    to: validation_gate
-    mapping:
-      title: title
-
-  e22:
     from: code_review
     to: validation_gate
     mapping:
       patches: revised_patches
       review_approved: approved
-      review_issues: issues
       review_severity: severity
 
-  e23:
+  e22:
     from: validate_patches
     to: validation_gate
     mapping:
       validation_result: .
 
   # Phase 11: Apply patches only if validation passed
-  e24:
+  e23:
     from: validation_gate
     to: apply_patches
     condition: proceed == true
@@ -185,12 +178,12 @@ edges:
       patches: patches_to_apply
 
   # Phase 12: Run final lint on applied changes (for any auto-fixes)
-  e25:
+  e24:
     from: apply_patches
     to: run_lint
 
   # Output: Success path (validation passed, patches applied)
-  e26:
+  e25:
     from: validation_gate
     to: output
     condition: proceed == true
@@ -198,20 +191,20 @@ edges:
       status: status
       summary: summary
 
-  e27:
+  e26:
     from: apply_patches
     to: output
     mapping:
       files_patched: files_patched
 
-  e28:
+  e27:
     from: run_lint
     to: output
     mapping:
       lint_fixed: fixed
 
   # Output: Failure path (validation failed, no patches applied)
-  e29:
+  e28:
     from: validation_gate
     to: output
     condition: proceed == false
@@ -219,7 +212,9 @@ edges:
       status: status
       summary: summary
       errors: errors
-      suggested_fixes: suggested_fixes
+      lint_output: lint_output
+      typecheck_output: typecheck_output
+      test_output: test_output
 
 tools:
   list_structure:
@@ -257,6 +252,12 @@ tools:
     module: file_ops
     function: validate_patches
     description: Validate patches in a sandbox (lint, typecheck, tests) without modifying workspace
+
+  validation_gate:
+    type: python
+    module: file_ops
+    function: validation_gate
+    description: Deterministic gate that decides whether to apply patches based on validation results
 
   apply_patches:
     type: python
