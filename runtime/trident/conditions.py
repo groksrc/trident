@@ -83,29 +83,35 @@ class Parser:
 
     def parse_or(self) -> bool:
         left = self.parse_and()
-        while self.peek() and self.peek()[0] == "OR":
+        token = self.peek()
+        while token is not None and token[0] == "OR":
             self.consume("OR")
             right = self.parse_and()
             left = left or right
+            token = self.peek()
         return left
 
     def parse_and(self) -> bool:
         left = self.parse_not()
-        while self.peek() and self.peek()[0] == "AND":
+        token = self.peek()
+        while token is not None and token[0] == "AND":
             self.consume("AND")
             right = self.parse_not()
             left = left and right
+            token = self.peek()
         return left
 
     def parse_not(self) -> bool:
-        if self.peek() and self.peek()[0] == "NOT":
+        token = self.peek()
+        if token is not None and token[0] == "NOT":
             self.consume("NOT")
             return not self.parse_not()
         return self.parse_comparison()
 
     def parse_comparison(self) -> bool:
         left = self.parse_term()
-        if self.peek() and self.peek()[0] == "OP":
+        token = self.peek()
+        if token is not None and token[0] == "OP":
             op = self.consume("OP")[1]
             right = self.parse_term()
             return self._compare(left, op, right)
