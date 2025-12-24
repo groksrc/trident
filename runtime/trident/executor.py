@@ -210,6 +210,7 @@ def run(
     entrypoint: str | None = None,
     inputs: dict[str, Any] | None = None,
     dry_run: bool = False,
+    verbose: bool = False,
 ) -> ExecutionResult:
     """Execute a Trident project.
 
@@ -218,6 +219,7 @@ def run(
         entrypoint: Starting node ID (default: first entrypoint)
         inputs: Input data for input nodes
         dry_run: If True, simulate execution without LLM calls
+        verbose: If True, print node execution progress to stdout
 
     Returns:
         ExecutionResult with outputs and trace. Always returns, even on failure.
@@ -258,6 +260,9 @@ def run(
         node_trace = NodeTrace(id=node_id, start_time=_now_iso())
 
         try:
+            if verbose:
+                print(f"Executing node: {node_id}")
+
             # Check if any incoming edge condition blocks execution
             should_run = True
             for edge in node.incoming_edges:

@@ -53,6 +53,9 @@ def main() -> int:
     )
     run_parser.add_argument("--trace", action="store_true", help="Output execution trace")
     run_parser.add_argument("--dry-run", action="store_true", help="Simulate without LLM calls")
+    run_parser.add_argument(
+        "--verbose", "-v", action="store_true", help="Show node execution progress"
+    )
 
     # project validate
     validate_parser = project_subparsers.add_parser("validate", help="Validate a Trident project")
@@ -241,7 +244,13 @@ def cmd_project_run(args) -> int:
             inputs = json.load(f)
 
     # Execute
-    result = run(project, entrypoint=args.entrypoint, inputs=inputs, dry_run=args.dry_run)
+    result = run(
+        project,
+        entrypoint=args.entrypoint,
+        inputs=inputs,
+        dry_run=args.dry_run,
+        verbose=args.verbose,
+    )
 
     # Output
     if args.output == "json":
