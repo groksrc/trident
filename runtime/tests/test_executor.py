@@ -98,7 +98,7 @@ class TestExecutionTrace(unittest.TestCase):
         ]
 
         failed = trace.failed_node
-        self.assertIsNotNone(failed)
+        assert failed is not None  # Type narrowing for pyright
         self.assertEqual(failed.id, "node2")
         self.assertEqual(failed.error, "First error")
 
