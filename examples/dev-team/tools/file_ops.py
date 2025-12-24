@@ -723,7 +723,7 @@ def run_tests(test_path: str = "tests/") -> dict[str, Any]:
 
 def validation_gate(
     patches: list[dict] | str,
-    validation_result: dict[str, Any],
+    validation_result: dict[str, Any] | None,
     review_approved: bool = True,
     review_severity: str = "none",
 ) -> dict[str, Any]:
@@ -765,6 +765,10 @@ def validation_gate(
                 "typecheck_output": None,
                 "test_output": None,
             }
+
+    # Handle None validation_result (e.g., dry-run mode)
+    if validation_result is None:
+        validation_result = {"valid": False, "summary": "No validation result (dry-run?)"}
 
     # Check review status - block on major/critical issues
     review_dominated = review_severity in ("major", "critical")
