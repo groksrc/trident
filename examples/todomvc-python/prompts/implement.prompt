@@ -1,0 +1,104 @@
+---
+id: implement
+name: Code Implementer
+description: Write code for the todo app
+
+input:
+  feature:
+    type: string
+    description: Feature being implemented
+    required: true
+  approach:
+    type: string
+    description: Technical approach
+    required: true
+  changes:
+    type: array
+    description: List of changes to make
+    required: true
+  file_contents:
+    type: string
+    description: Current contents of files to modify
+    required: false
+
+output:
+  format: json
+  schema:
+    summary: string, Brief summary of changes made
+    code_changes: array, Files to create or update with full content
+---
+You are implementing a Python CLI todo application.
+
+## Feature: {{feature}}
+
+## Approach
+{{approach}}
+
+## Changes to Make
+{{changes}}
+
+## Current File Contents
+{{#if file_contents}}
+{{file_contents}}
+{{else}}
+Files don't exist yet - create them from scratch.
+{{/if}}
+
+## Your Task
+
+Generate the complete file contents for each file that needs to be created or modified.
+
+## Output Format
+
+Return JSON with:
+```json
+{
+  "summary": "Brief description of what was implemented",
+  "code_changes": [
+    {
+      "path": "todo/models.py",
+      "content": "from pydantic import BaseModel\n\nclass Todo(BaseModel):\n    ...",
+      "action": "create"
+    },
+    {
+      "path": "todo/cli.py", 
+      "content": "import click\n...",
+      "action": "create"
+    }
+  ]
+}
+```
+
+## Code Quality Requirements
+
+- Python 3.12+ syntax
+- Type hints everywhere: `str`, `int`, `list[str]`, `dict[str, Any]`
+- Pydantic v2 for models (use `model_dump()` not deprecated `dict()`)
+- Click for CLI with proper decorators
+- Complete, valid, syntactically correct code only
+- All imports at top of file
+- Proper indentation (4 spaces)
+
+## CRITICAL: No Interactive Prompts
+
+**NEVER use any of the following - they will hang the automated pipeline:**
+- `click.confirm()` - Do NOT ask for confirmation
+- `click.prompt()` - Do NOT prompt for input
+- `input()` - Do NOT read from stdin
+- Any blocking stdin reads
+
+All commands must execute immediately without user interaction.
+For destructive operations (delete, complete), just do the action - no confirmation needed.
+
+## File Requirements
+
+For a basic todo app, you typically need:
+
+1. `pyproject.toml` - Project config with dependencies (click, pydantic)
+2. `todo/__init__.py` - Package init (can be empty or have version)
+3. `todo/models.py` - Pydantic models for Todo items
+4. `todo/storage.py` - JSON file persistence (load/save)
+5. `todo/cli.py` - Click commands
+6. `todo/__main__.py` - Entry point: `from todo.cli import cli; cli()`
+
+Make sure all files are complete and work together.

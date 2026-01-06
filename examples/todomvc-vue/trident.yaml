@@ -1,0 +1,124 @@
+trident: "0.1"
+name: todomvc-vue
+description: Generate a Vue 3 TodoMVC app iteratively
+version: "0.1.0"
+
+defaults:
+  model: anthropic/claude-sonnet-4-20250514
+  temperature: 0.3
+  max_tokens: 16384
+
+entrypoints:
+  - input
+
+nodes:
+  input:
+    type: input
+    schema:
+      feature: string, The feature to implement (e.g. "project setup", "add todo", "toggle complete")
+      iteration: integer, Current iteration number (starts at 1)
+
+  output:
+    type: output
+    format: json
+
+edges:
+  # Phase 1: Read current state of the project
+  e1:
+    from: input
+    to: list_structure
+
+  e2:
+    from: list_structure
+    to: read_existing
+    mapping:
+      files: files
+
+  # Phase 2: Design the feature
+  e3:
+    from: input
+    to: design
+    mapping:
+      feature: feature
+      iteration: iteration
+
+  e4:
+    from: read_existing
+    to: design
+    mapping:
+      existing_code: content
+
+  # Phase 3: Implement the feature
+  e5:
+    from: design
+    to: read_for_implement
+    mapping:
+      files: files_to_modify
+
+  e6:
+    from: design
+    to: implement
+    mapping:
+      feature: feature
+      approach: approach
+      changes: changes
+
+  e7:
+    from: read_for_implement
+    to: implement
+    mapping:
+      file_contents: content
+
+  # Phase 4: Write files
+  e8:
+    from: implement
+    to: write_files
+    mapping:
+      code_changes: code_changes
+
+  # Output
+  e9:
+    from: implement
+    to: output
+    mapping:
+      summary: summary
+
+  e10:
+    from: write_files
+    to: output
+    mapping:
+      files_written: files_written
+      syntax_errors: syntax_errors
+
+tools:
+  list_structure:
+    type: python
+    module: file_ops
+    function: list_project_structure
+    description: List all files in the Vue project
+
+  read_existing:
+    type: python
+    module: file_ops
+    function: read_files_multi
+    description: Read all existing project files
+
+  read_for_implement:
+    type: python
+    module: file_ops
+    function: read_files_multi
+    description: Read files for implementation
+
+  write_files:
+    type: python
+    module: file_ops
+    function: write_files_multi
+    description: Write files with full content
+
+env:
+  ANTHROPIC_API_KEY:
+    description: Anthropic API key for Claude
+    required: true
+  TRIDENT_WORKSPACE:
+    description: Path to the Vue app workspace
+    required: true

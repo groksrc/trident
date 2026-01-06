@@ -1,0 +1,225 @@
+---
+id: implement
+name: Code Implementer
+description: Write Vue 3 code for the TodoMVC app
+
+input:
+  feature:
+    type: string
+    description: Feature being implemented
+    required: true
+  approach:
+    type: string
+    description: Technical approach
+    required: true
+  changes:
+    type: array
+    description: List of changes to make
+    required: true
+  file_contents:
+    type: string
+    description: Current contents of files to modify
+    required: false
+
+output:
+  format: json
+  schema:
+    summary: string, Brief summary of changes made
+    code_changes: array, Files to create or update with full content
+---
+You are implementing a Vue 3 TodoMVC application.
+
+## Feature: {{feature}}
+
+## Approach
+{{approach}}
+
+## Changes to Make
+{{changes}}
+
+## Current File Contents
+{{#if file_contents}}
+{{file_contents}}
+{{else}}
+Files don't exist yet - create them from scratch.
+{{/if}}
+
+## Your Task
+
+Generate the complete file contents for each file that needs to be created or modified.
+
+## Output Format
+
+Return JSON with:
+```json
+{
+  "summary": "Brief description of what was implemented",
+  "code_changes": [
+    {
+      "path": "package.json",
+      "content": "{\n  \"name\": \"todomvc-vue\",\n  ...\n}",
+      "action": "create"
+    },
+    {
+      "path": "src/App.vue",
+      "content": "<script setup lang=\"ts\">\n...",
+      "action": "create"
+    }
+  ]
+}
+```
+
+## Code Quality Requirements
+
+### Vue 3 Composition API
+- Use `<script setup lang="ts">` syntax (NOT Options API)
+- Use `ref()` and `reactive()` for state
+- Use `computed()` for derived values
+- Use `watch()` or `watchEffect()` for side effects
+- Extract reusable logic into composables (`src/composables/`)
+
+### TypeScript
+- Define interfaces in `src/types/index.ts`
+- Type all function parameters and return values
+- Use strict mode (no `any` unless absolutely necessary)
+
+### Vue Single File Components (.vue)
+```vue
+<script setup lang="ts">
+import { ref, computed } from 'vue'
+// imports, logic here
+</script>
+
+<template>
+  <!-- HTML template here -->
+</template>
+
+<style scoped>
+/* Component-specific styles (optional, TodoMVC CSS handles most) */
+</style>
+```
+
+### TodoMVC HTML Structure
+Follow the official TodoMVC template structure:
+```html
+<section class="todoapp">
+  <header class="header">...</header>
+  <section class="main">...</section>
+  <footer class="footer">...</footer>
+</section>
+```
+
+### TodoMVC CSS
+Use the standard TodoMVC stylesheet from CDN in index.html:
+```html
+<link rel="stylesheet" href="https://unpkg.com/todomvc-app-css@2.4.2/index.css">
+```
+
+## File Requirements
+
+### package.json
+```json
+{
+  "name": "todomvc-vue",
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "vue": "^3.4.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.0.0",
+    "typescript": "^5.3.0",
+    "vite": "^5.0.0",
+    "vue-tsc": "^1.8.0"
+  }
+}
+```
+
+### index.html
+Must include TodoMVC CSS and mount point:
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TodoMVC - Vue 3</title>
+  <link rel="stylesheet" href="https://unpkg.com/todomvc-app-css@2.4.2/index.css">
+</head>
+<body>
+  <div id="app"></div>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
+```
+
+### vite.config.ts
+```typescript
+import { defineConfig } from 'vite'
+import vue from '@vitejs/plugin-vue'
+
+export default defineConfig({
+  plugins: [vue()]
+})
+```
+
+### tsconfig.json
+```json
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+    "module": "ESNext",
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "jsx": "preserve",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx", "src/**/*.vue"],
+  "references": [{ "path": "./tsconfig.node.json" }]
+}
+```
+
+### src/types/index.ts
+```typescript
+export interface Todo {
+  id: string
+  title: string
+  completed: boolean
+}
+
+export type FilterType = 'all' | 'active' | 'completed'
+```
+
+### src/composables/useTodos.ts
+Central state management with localStorage persistence:
+- `todos: Ref<Todo[]>` - reactive todo list
+- `addTodo(title: string)` - create new todo
+- `removeTodo(id: string)` - delete todo
+- `toggleTodo(id: string)` - toggle completion
+- `editTodo(id: string, title: string)` - update title
+- `clearCompleted()` - remove all completed
+- `toggleAll()` - toggle all todos
+- Load from localStorage on init, save on changes
+
+## CRITICAL Requirements
+
+1. **Complete files only** - Every file must be complete and syntactically valid
+2. **No placeholders** - No "// TODO" or "..." - implement fully
+3. **Working code** - Must run with `npm install && npm run dev`
+4. **Proper imports** - All imports must be valid and complete
+
+Make sure all files work together as a cohesive application.
