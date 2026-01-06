@@ -9,11 +9,24 @@ from uuid import uuid4
 from .conditions import evaluate
 from .dag import DAG, build_dag
 from .errors import NodeExecutionError, SchemaValidationError, TridentError
-from .parser import PromptNode
+from .parser import PromptNode, parse_prompt_file
 from .project import Edge, Project
 from .providers import CompletionConfig, get_registry, setup_providers
 from .template import get_nested, render
 from .tools.python import PythonToolRunner
+
+# Agent execution (optional - requires trident[agents])
+try:
+    from .agents import SDK_AVAILABLE as AGENT_SDK_AVAILABLE
+    from .agents import execute_agent
+except ImportError:
+    AGENT_SDK_AVAILABLE = False
+
+    def execute_agent(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        raise TridentError(
+            "Agent execution requires Claude Agent SDK. "
+            "Install with: pip install trident[agents]"
+        )
 
 
 @dataclass
@@ -296,6 +309,9 @@ def run(
             elif node.type == "tool":
                 _execute_tool_node(node_id, project, dag, node_outputs, node_trace, tool_runner)
 
+            elif node.type == "agent":
+                _execute_agent_node(node_id, project, dag, node_outputs, node_trace, dry_run)
+
             node_outputs[node_id] = node_trace.output
 
         except Exception as e:
@@ -433,4 +449,55 @@ def _execute_tool_node(
 
     # Execute tool
     result = tool_runner.execute(tool_def, gathered)
+    node_trace.output = result
+
+
+def _execute_agent_node(
+    node_id: str,
+    project: Project,
+    dag: DAG,
+    node_outputs: dict[str, dict[str, Any]],
+    node_trace: NodeTrace,
+    dry_run: bool,
+) -> None:
+    """Execute an agent node via Claude Agent SDK. Raises on error."""
+    agent_node = project.agents.get(node_id)
+    if not agent_node:
+        raise TridentError("Agent definition not found in project")
+
+    # Load prompt if not already loaded
+    if not agent_node.prompt_node:
+        prompt_path = project.root / agent_node.prompt_path
+        if prompt_path.exists():
+            agent_node.prompt_node = parse_prompt_file(prompt_path)
+        else:
+            raise TridentError(f"Agent prompt not found: {prompt_path}")
+
+    # Gather inputs
+    gathered = _gather_inputs(node_id, dag, node_outputs)
+    node_trace.input = gathered
+
+    if dry_run:
+        # Dry run: generate mock output
+        if agent_node.prompt_node.output.format == "json":
+            mock: dict[str, Any] = {}
+            for field_name, (field_type, _) in agent_node.prompt_node.output.fields.items():
+                if field_type == "string":
+                    mock[field_name] = f"[mock_{field_name}]"
+                elif field_type == "array":
+                    mock[field_name] = []
+                else:
+                    mock[field_name] = None
+            node_trace.output = mock
+        else:
+            node_trace.output = {"text": "[DRY RUN] Mock agent response"}
+        node_trace.tokens = {"input": 0, "output": 0}
+        return
+
+    # Execute agent via SDK
+    result = execute_agent(
+        agent_node=agent_node,
+        inputs=gathered,
+        project_root=str(project.root),
+    )
     node_trace.output = result

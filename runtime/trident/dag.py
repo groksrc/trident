@@ -11,7 +11,7 @@ class DAGNode:
     """Node in the execution DAG."""
 
     id: str
-    type: str  # "prompt", "input", "output", "tool"
+    type: str  # "prompt", "input", "output", "tool", "agent"
     incoming_edges: list[Edge] = field(default_factory=list)
     outgoing_edges: list[Edge] = field(default_factory=list)
 
@@ -50,6 +50,9 @@ def build_dag(project: Project) -> DAG:
 
     for node_id in project.tools:
         nodes[node_id] = DAGNode(id=node_id, type="tool")
+
+    for node_id in project.agents:
+        nodes[node_id] = DAGNode(id=node_id, type="agent")
 
     # Wire up edges
     for edge in project.edges.values():
@@ -116,7 +119,7 @@ def _get_node_symbol(node_type: str) -> str:
     Returns:
         Single character symbol in brackets
     """
-    symbols = {"input": "[I]", "prompt": "[P]", "tool": "[T]", "output": "[O]"}
+    symbols = {"input": "[I]", "prompt": "[P]", "tool": "[T]", "output": "[O]", "agent": "[A]"}
     return symbols.get(node_type, "[?]")
 
 
@@ -157,6 +160,6 @@ def visualize_dag(dag: DAG) -> str:
             lines.append("")
 
     lines.append("")
-    lines.append("Legend: [I] Input, [P] Prompt, [T] Tool, [O] Output")
+    lines.append("Legend: [I] Input, [P] Prompt, [T] Tool, [A] Agent, [O] Output")
 
     return "\n".join(lines)

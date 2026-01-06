@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from .errors import ParseError, ValidationError
-from .parser import PromptNode, parse_prompt_file, parse_yaml_simple
+from .parser import AgentNode, MCPServerConfig, PromptNode, parse_prompt_file, parse_yaml_simple
 
 
 @dataclass
@@ -70,6 +70,7 @@ class Project:
     input_nodes: dict[str, InputNode] = field(default_factory=dict)
     output_nodes: dict[str, OutputNode] = field(default_factory=dict)
     tools: dict[str, ToolDef] = field(default_factory=dict)
+    agents: dict[str, AgentNode] = field(default_factory=dict)  # Agent nodes (SPEC-3)
     env: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
@@ -143,6 +144,35 @@ def load_project(path: str | Path) -> Project:
                 tool_id = node_spec.get("tool", node_id)
                 # Tool definition comes from tools section
                 pass
+            elif node_type == "agent":
+                # Parse agent node configuration (SPEC-3)
+                mcp_servers: dict[str, MCPServerConfig] = {}
+                if "mcp_servers" in node_spec:
+                    for server_name, server_spec in node_spec["mcp_servers"].items():
+                        if isinstance(server_spec, dict):
+                            mcp_servers[server_name] = MCPServerConfig(
+                                command=server_spec.get("command", ""),
+                                args=server_spec.get("args", []),
+                                env=server_spec.get("env", {}),
+                            )
+
+                allowed_tools_raw = node_spec.get("allowed_tools", [])
+                if isinstance(allowed_tools_raw, list):
+                    allowed_tools = [str(t) for t in allowed_tools_raw]
+                elif isinstance(allowed_tools_raw, str):
+                    allowed_tools = [allowed_tools_raw]
+                else:
+                    allowed_tools = []
+
+                project.agents[node_id] = AgentNode(
+                    id=node_id,
+                    prompt_path=node_spec.get("prompt", f"prompts/{node_id}.prompt"),
+                    allowed_tools=allowed_tools,
+                    mcp_servers=mcp_servers,
+                    max_turns=node_spec.get("max_turns", 50),
+                    permission_mode=node_spec.get("permission_mode", "acceptEdits"),
+                    cwd=node_spec.get("cwd"),
+                )
 
     # Parse edges
     if "edges" in manifest:
@@ -190,12 +220,22 @@ def load_project(path: str | Path) -> Project:
     all_from_nodes = {e.from_node for e in project.edges.values()}
     all_to_nodes = {e.to_node for e in project.edges.values()}
 
+    # All known node types
+    known_nodes = (
+        set(project.prompts.keys())
+        | set(project.input_nodes.keys())
+        | set(project.output_nodes.keys())
+        | set(project.tools.keys())
+        | set(project.agents.keys())
+    )
+
     for node_id in all_from_nodes:
-        if node_id not in project.prompts and node_id not in project.input_nodes:
+        if node_id not in known_nodes:
             project.input_nodes[node_id] = InputNode(id=node_id)
+            known_nodes.add(node_id)
 
     for node_id in all_to_nodes:
-        if node_id not in project.prompts and node_id not in project.output_nodes:
+        if node_id not in known_nodes:
             project.output_nodes[node_id] = OutputNode(id=node_id)
 
     # Default entrypoint

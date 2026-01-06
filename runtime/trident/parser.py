@@ -43,6 +43,34 @@ class PromptNode:
     file_path: Path | None = None
 
 
+@dataclass
+class MCPServerConfig:
+    """MCP server configuration for agent nodes."""
+
+    command: str
+    args: list[str] = field(default_factory=list)
+    env: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
+class AgentNode:
+    """Agent node definition - executes via Claude Agent SDK.
+
+    Agent nodes have access to tools and MCP servers, enabling
+    autonomous multi-turn execution with real-world interactions.
+    """
+
+    id: str
+    prompt_path: str  # Path to .prompt file
+    allowed_tools: list[str] = field(default_factory=list)
+    mcp_servers: dict[str, MCPServerConfig] = field(default_factory=dict)
+    max_turns: int = 50  # Default limit for agent iterations
+    permission_mode: str = "acceptEdits"  # Auto-accept file edits
+    cwd: str | None = None  # Working directory for agent
+    # Parsed prompt content (loaded at runtime)
+    prompt_node: PromptNode | None = None
+
+
 def _parse_value(value: str) -> Any:
     """Parse a YAML value into Python type."""
     value = value.strip()

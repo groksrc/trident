@@ -1,0 +1,306 @@
+"""Tests for agent node functionality (SPEC-3)."""
+
+import tempfile
+import unittest
+from pathlib import Path
+
+from trident.executor import run
+from trident.parser import AgentNode, MCPServerConfig, OutputSchema, PromptNode
+from trident.project import Edge, InputNode, OutputNode, Project
+
+
+class TestAgentNodeDryRun(unittest.TestCase):
+    """Tests for agent node dry-run execution."""
+
+    def _make_agent_project(self) -> Project:
+        """Create a project with an agent node for testing."""
+        project = Project(name="test-agents", root=Path("."))
+        project.input_nodes["input"] = InputNode(id="input")
+        project.output_nodes["output"] = OutputNode(id="output")
+
+        # Create agent node with prompt
+        prompt_node = PromptNode(
+            id="tester",
+            body="Test the app at {{app_url}}",
+            output=OutputSchema(
+                format="json",
+                fields={
+                    "status": ("string", "Test status"),
+                    "passed": ("array", "Passed tests"),
+                },
+            ),
+        )
+
+        agent = AgentNode(
+            id="tester",
+            prompt_path="prompts/tester.prompt",
+            allowed_tools=["Read", "Glob"],
+            max_turns=10,
+            prompt_node=prompt_node,  # Pre-loaded for testing
+        )
+        project.agents["tester"] = agent
+
+        project.edges["e1"] = Edge(id="e1", from_node="input", to_node="tester")
+        project.edges["e2"] = Edge(id="e2", from_node="tester", to_node="output")
+        project.entrypoints = ["input"]
+
+        return project
+
+    def test_dry_run_agent_json_output(self):
+        """Dry run generates mock JSON output for agent nodes."""
+        project = self._make_agent_project()
+        result = run(project, dry_run=True, inputs={"app_url": "http://localhost:3000"})
+
+        self.assertTrue(result.success)
+        # Check that agent node executed
+        agent_trace = next((n for n in result.trace.nodes if n.id == "tester"), None)
+        self.assertIsNotNone(agent_trace)
+        self.assertIn("status", agent_trace.output)
+        self.assertIn("passed", agent_trace.output)
+
+    def test_dry_run_agent_text_output(self):
+        """Dry run generates mock text output for text-format agents."""
+        project = self._make_agent_project()
+        # Change to text output
+        project.agents["tester"].prompt_node.output = OutputSchema(format="text")
+
+        result = run(project, dry_run=True, inputs={"app_url": "http://localhost:3000"})
+
+        self.assertTrue(result.success)
+        agent_trace = next((n for n in result.trace.nodes if n.id == "tester"), None)
+        self.assertIsNotNone(agent_trace)
+        self.assertIn("text", agent_trace.output)
+        self.assertIn("DRY RUN", agent_trace.output["text"])
+
+
+class TestAgentNodeConfig(unittest.TestCase):
+    """Tests for agent node configuration parsing."""
+
+    def test_mcp_server_config(self):
+        """MCP server configuration is properly structured."""
+        config = MCPServerConfig(
+            command="npx",
+            args=["@playwright/mcp@latest"],
+            env={"DEBUG": "true"},
+        )
+
+        self.assertEqual(config.command, "npx")
+        self.assertEqual(config.args, ["@playwright/mcp@latest"])
+        self.assertEqual(config.env, {"DEBUG": "true"})
+
+    def test_agent_node_defaults(self):
+        """Agent node has sensible defaults."""
+        agent = AgentNode(id="test", prompt_path="prompts/test.prompt")
+
+        self.assertEqual(agent.max_turns, 50)
+        self.assertEqual(agent.permission_mode, "acceptEdits")
+        self.assertEqual(agent.allowed_tools, [])
+        self.assertEqual(agent.mcp_servers, {})
+        self.assertIsNone(agent.cwd)
+
+
+class TestJsonParsing(unittest.TestCase):
+    """Tests for JSON response parsing."""
+
+    def test_parse_direct_json(self):
+        """Direct JSON is parsed correctly."""
+        from trident.agents import _parse_json_response
+
+        result = _parse_json_response('{"status": "pass", "count": 5}')
+        self.assertEqual(result["status"], "pass")
+        self.assertEqual(result["count"], 5)
+
+    def test_parse_json_code_block(self):
+        """JSON in ```json block is extracted."""
+        from trident.agents import _parse_json_response
+
+        text = """Here's the result:
+
+```json
+{"status": "pass", "items": [1, 2, 3]}
+```
+
+That's all!"""
+        result = _parse_json_response(text)
+        self.assertEqual(result["status"], "pass")
+        self.assertEqual(result["items"], [1, 2, 3])
+
+    def test_parse_plain_code_block(self):
+        """JSON in plain ``` block is extracted."""
+        from trident.agents import _parse_json_response
+
+        text = """Result:
+```
+{"key": "value"}
+```"""
+        result = _parse_json_response(text)
+        self.assertEqual(result["key"], "value")
+
+    def test_parse_array_wrapped(self):
+        """Top-level arrays are wrapped in dict."""
+        from trident.agents import _parse_json_response
+
+        result = _parse_json_response('[1, 2, 3]')
+        self.assertEqual(result["result"], [1, 2, 3])
+
+    def test_parse_invalid_json_raises(self):
+        """Invalid JSON raises JSONDecodeError."""
+        import json
+
+        from trident.agents import _parse_json_response
+
+        with self.assertRaises(json.JSONDecodeError):
+            _parse_json_response("This is not JSON at all")
+
+    def test_parse_code_block_with_language(self):
+        """Code block with language identifier is handled."""
+        from trident.agents import _parse_json_response
+
+        text = """```javascript
+{"language": "js"}
+```"""
+        result = _parse_json_response(text)
+        self.assertEqual(result["language"], "js")
+
+
+class TestSchemaValidation(unittest.TestCase):
+    """Tests for agent output schema validation."""
+
+    def test_validation_missing_field(self):
+        """Missing required field raises error."""
+        from trident.agents import AgentExecutionError, _validate_agent_output
+
+        schema = {"name": ("string", "User name"), "age": ("number", "User age")}
+
+        with self.assertRaises(AgentExecutionError) as ctx:
+            _validate_agent_output({"name": "Alice"}, schema, "test_agent")
+
+        self.assertIn("age", str(ctx.exception))
+        self.assertIn("missing", str(ctx.exception).lower())
+
+    def test_validation_wrong_type(self):
+        """Wrong field type raises error."""
+        from trident.agents import AgentExecutionError, _validate_agent_output
+
+        schema = {"count": ("integer", "Item count")}
+
+        with self.assertRaises(AgentExecutionError) as ctx:
+            _validate_agent_output({"count": "five"}, schema, "test_agent")
+
+        self.assertIn("count", str(ctx.exception))
+        self.assertIn("integer", str(ctx.exception))
+
+    def test_validation_success(self):
+        """Valid data passes validation."""
+        from trident.agents import _validate_agent_output
+
+        schema = {
+            "status": ("string", "Status"),
+            "count": ("number", "Count"),
+            "items": ("array", "Items"),
+            "active": ("boolean", "Active flag"),
+        }
+
+        # Should not raise
+        _validate_agent_output(
+            {"status": "ok", "count": 42, "items": [1, 2], "active": True},
+            schema,
+            "test_agent",
+        )
+
+
+class TestAgentInDAG(unittest.TestCase):
+    """Tests for agent nodes in DAG structure."""
+
+    def test_agent_node_in_dag(self):
+        """Agent nodes are properly added to DAG."""
+        from trident.dag import build_dag
+
+        project = Project(name="test", root=Path("."))
+        project.input_nodes["input"] = InputNode(id="input")
+        project.output_nodes["output"] = OutputNode(id="output")
+        project.agents["agent1"] = AgentNode(
+            id="agent1",
+            prompt_path="prompts/agent1.prompt",
+        )
+        project.edges["e1"] = Edge(id="e1", from_node="input", to_node="agent1")
+        project.edges["e2"] = Edge(id="e2", from_node="agent1", to_node="output")
+
+        dag = build_dag(project)
+
+        self.assertIn("agent1", dag.nodes)
+        self.assertEqual(dag.nodes["agent1"].type, "agent")
+        self.assertIn("agent1", dag.execution_order)
+
+    def test_agent_visualization_symbol(self):
+        """Agent nodes show [A] symbol in visualization."""
+        from trident.dag import build_dag, visualize_dag
+
+        project = Project(name="test", root=Path("."))
+        project.input_nodes["input"] = InputNode(id="input")
+        project.agents["tester"] = AgentNode(id="tester", prompt_path="p.prompt")
+        project.edges["e1"] = Edge(id="e1", from_node="input", to_node="tester")
+
+        dag = build_dag(project)
+        viz = visualize_dag(dag)
+
+        self.assertIn("[A]", viz)
+        self.assertIn("tester", viz)
+
+
+class TestAgentProjectLoading(unittest.TestCase):
+    """Tests for loading projects with agent nodes."""
+
+    def test_load_agent_with_all_options(self):
+        """Agent node with all configuration options loads correctly."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+
+            (root / "trident.yaml").write_text("""
+trident: "0.2"
+name: full-agent-test
+nodes:
+  analyzer:
+    type: agent
+    prompt: prompts/analyzer.prompt
+    allowed_tools:
+      - Read
+      - Write
+      - Bash
+    mcp_servers:
+      github:
+        command: npx
+        args:
+          - "@modelcontextprotocol/server-github"
+        env:
+          GITHUB_TOKEN: "${GITHUB_TOKEN}"
+    max_turns: 100
+    permission_mode: bypassPermissions
+    cwd: /tmp/workspace
+""")
+
+            (root / "prompts").mkdir()
+            (root / "prompts" / "analyzer.prompt").write_text("""---
+id: analyzer
+---
+Analyze the code.
+""")
+
+            from trident.project import load_project
+
+            project = load_project(root)
+            agent = project.agents["analyzer"]
+
+            self.assertEqual(agent.allowed_tools, ["Read", "Write", "Bash"])
+            self.assertEqual(agent.max_turns, 100)
+            self.assertEqual(agent.permission_mode, "bypassPermissions")
+            self.assertEqual(agent.cwd, "/tmp/workspace")
+            self.assertIn("github", agent.mcp_servers)
+            self.assertEqual(
+                agent.mcp_servers["github"].args,
+                ["@modelcontextprotocol/server-github"],
+            )
+
+
+if __name__ == "__main__":
+    unittest.main()

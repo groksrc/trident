@@ -70,6 +70,53 @@ name: no-version
             with self.assertRaises(ValidationError):
                 load_project(root)
 
+    def test_load_agent_node(self):
+        """Test loading a project with agent nodes (SPEC-3)."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+
+            (root / "trident.yaml").write_text("""
+trident: "0.2"
+name: test-agents
+nodes:
+  tester:
+    type: agent
+    prompt: prompts/tester.prompt
+    allowed_tools:
+      - Read
+      - Glob
+    mcp_servers:
+      playwright:
+        command: npx
+        args:
+          - "@playwright/mcp@latest"
+    max_turns: 25
+""")
+
+            (root / "prompts").mkdir()
+            (root / "prompts" / "tester.prompt").write_text("""---
+id: tester
+output:
+  format: json
+  schema:
+    status: string, Test status
+    passed: array, Passed tests
+---
+Test the app at {{app_url}}.
+""")
+
+            project = load_project(root)
+            self.assertEqual(project.name, "test-agents")
+            self.assertIn("tester", project.agents)
+
+            agent = project.agents["tester"]
+            self.assertEqual(agent.id, "tester")
+            self.assertEqual(agent.allowed_tools, ["Read", "Glob"])
+            self.assertEqual(agent.max_turns, 25)
+            self.assertIn("playwright", agent.mcp_servers)
+            self.assertEqual(agent.mcp_servers["playwright"].command, "npx")
+            self.assertEqual(agent.mcp_servers["playwright"].args, ["@playwright/mcp@latest"])
+
 
 if __name__ == "__main__":
     unittest.main()

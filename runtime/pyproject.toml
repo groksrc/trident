@@ -1,11 +1,18 @@
 [project]
 name = "trident"
-version = "0.1.0"
-description = "Zero-dependency Python runtime for LLM agent orchestration"
+version = "0.2.0"
+description = "Python runtime for LLM agent orchestration with Claude Agent SDK support"
 requires-python = ">=3.12"
 license = {text = "MIT"}
 authors = [
     {name = "Drew Cain", email = "groksrc@gmail.com"}
+]
+dependencies = []
+
+[project.optional-dependencies]
+agents = [
+    "claude-agent-sdk>=0.1.17",
+    "anyio>=4.0.0",
 ]
 
 [tool.ruff]
