@@ -3,7 +3,7 @@
 import unittest
 from pathlib import Path
 
-from trident.dag import DAGError, _get_node_symbol, build_dag, visualize_dag
+from trident.dag import DAGError, _get_node_symbol, build_dag, visualize_dag, visualize_dag_mermaid
 from trident.parser import BranchNode, PromptNode
 from trident.project import Edge, InputNode, OutputNode, Project
 
@@ -169,6 +169,59 @@ class TestDAG(unittest.TestCase):
         self.assertIn("[B] branch1", viz)
         self.assertIn("[I] Input", viz)  # Legend
         self.assertIn("[B] Branch", viz)  # Legend
+
+    def test_visualize_dag_mermaid_basic(self):
+        """Test Mermaid DAG visualization generates valid syntax."""
+        project = self._make_project([("input", "analyze"), ("analyze", "output")], prompts=["analyze"])
+        dag = build_dag(project)
+        mermaid = visualize_dag_mermaid(dag)
+
+        # Check structure
+        self.assertIn("```mermaid", mermaid)
+        self.assertIn("flowchart TD", mermaid)
+        self.assertIn("```", mermaid)
+
+        # Check nodes with correct shapes
+        self.assertIn("input([input])", mermaid)  # Stadium for input
+        self.assertIn("analyze[prompt: analyze]", mermaid)  # Rectangle for prompt
+        self.assertIn("output([output])", mermaid)  # Stadium for output
+
+        # Check edges
+        self.assertIn("input --> analyze", mermaid)
+        self.assertIn("analyze --> output", mermaid)
+
+    def test_visualize_dag_mermaid_parallel(self):
+        """Test Mermaid visualization shows parallel branches."""
+        project = self._make_project(
+            [
+                ("input", "a"),
+                ("input", "b"),
+                ("a", "output"),
+                ("b", "output"),
+            ],
+            prompts=["a", "b"],
+        )
+        dag = build_dag(project)
+        mermaid = visualize_dag_mermaid(dag)
+
+        # Both branches should have edges from input
+        self.assertIn("input --> a", mermaid)
+        self.assertIn("input --> b", mermaid)
+
+        # Both branches should connect to output
+        self.assertIn("a --> output", mermaid)
+        self.assertIn("b --> output", mermaid)
+
+    def test_visualize_dag_mermaid_direction(self):
+        """Test Mermaid visualization supports different directions."""
+        project = self._make_project([("a", "b")], prompts=["b"])
+        dag = build_dag(project)
+
+        lr_mermaid = visualize_dag_mermaid(dag, direction="LR")
+        self.assertIn("flowchart LR", lr_mermaid)
+
+        td_mermaid = visualize_dag_mermaid(dag, direction="TD")
+        self.assertIn("flowchart TD", td_mermaid)
 
 
 if __name__ == "__main__":

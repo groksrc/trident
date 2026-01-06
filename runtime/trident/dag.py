@@ -181,3 +181,69 @@ def visualize_dag(dag: DAG) -> str:
     lines.append("Legend: [I] Input, [P] Prompt, [T] Tool, [A] Agent, [B] Branch, [O] Output")
 
     return "\n".join(lines)
+
+
+def visualize_dag_mermaid(dag: DAG, direction: str = "TD") -> str:
+    """Generate Mermaid flowchart visualization of the DAG.
+
+    Args:
+        dag: The DAG to visualize
+        direction: Flow direction - TD (top-down), LR (left-right), etc.
+
+    Returns:
+        Mermaid markdown string that renders in GitHub, GitLab, Obsidian, etc.
+
+    Example output:
+        ```mermaid
+        flowchart TD
+            input([input])
+            analyze[analyze]
+            output([output])
+
+            input --> analyze
+            analyze --> output
+        ```
+    """
+    if not dag.nodes:
+        return "```mermaid\nflowchart TD\n    empty[No nodes]\n```"
+
+    lines = ["```mermaid", f"flowchart {direction}", ""]
+
+    # Node shape mapping based on type
+    # () = stadium/rounded, [] = rectangle, {} = rhombus, (()) = circle
+    shape_map = {
+        "input": ("([", "])"),  # Stadium shape for input
+        "output": ("([", "])"),  # Stadium shape for output
+        "prompt": ("[", "]"),  # Rectangle for prompt
+        "tool": ("{{", "}}"),  # Hexagon for tool
+        "agent": ("[[", "]]"),  # Subroutine for agent
+        "branch": ("{", "}"),  # Rhombus for branch/decision
+    }
+
+    # Define nodes with shapes
+    lines.append("    %% Nodes")
+    for node_id in dag.execution_order:
+        node = dag.nodes[node_id]
+        left, right = shape_map.get(node.type, ("[", "]"))
+        # Sanitize node_id for Mermaid (replace hyphens, spaces)
+        safe_id = node_id.replace("-", "_").replace(" ", "_")
+        label = f"{node.type}: {node_id}" if node.type not in ("input", "output") else node_id
+        lines.append(f"    {safe_id}{left}{label}{right}")
+
+    lines.append("")
+    lines.append("    %% Edges")
+
+    # Define edges
+    seen_edges: set[tuple[str, str]] = set()
+    for node_id in dag.execution_order:
+        node = dag.nodes[node_id]
+        for edge in node.outgoing_edges:
+            edge_tuple = (edge.from_node, edge.to_node)
+            if edge_tuple not in seen_edges:
+                seen_edges.add(edge_tuple)
+                safe_from = edge.from_node.replace("-", "_").replace(" ", "_")
+                safe_to = edge.to_node.replace("-", "_").replace(" ", "_")
+                lines.append(f"    {safe_from} --> {safe_to}")
+
+    lines.append("```")
+    return "\n".join(lines)

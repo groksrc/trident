@@ -92,6 +92,25 @@ def main() -> int:
     # project graph
     graph_parser = project_subparsers.add_parser("graph", help="Visualize the project DAG")
     graph_parser.add_argument("path", nargs="?", default=".", help="Path to project (default: .)")
+    graph_parser.add_argument(
+        "--format",
+        "-f",
+        choices=["ascii", "mermaid"],
+        default="ascii",
+        help="Output format (default: ascii)",
+    )
+    graph_parser.add_argument(
+        "--direction",
+        "-d",
+        choices=["TD", "LR", "BT", "RL"],
+        default="TD",
+        help="Mermaid flow direction: TD (top-down), LR (left-right), etc.",
+    )
+    graph_parser.add_argument(
+        "--open",
+        action="store_true",
+        help="Open Mermaid diagram in browser (mermaid.live)",
+    )
 
     # project runs
     runs_parser = project_subparsers.add_parser("runs", help="List past runs")
@@ -274,12 +293,42 @@ def cmd_project_validate(args) -> int:
 
 def cmd_project_graph(args) -> int:
     """Visualize the project DAG."""
-    from .dag import build_dag, visualize_dag
+    import base64
+    import webbrowser
+    import zlib
+
+    from .dag import build_dag, visualize_dag, visualize_dag_mermaid
 
     project = load_project(args.path)
     dag = build_dag(project)
 
-    print(visualize_dag(dag))
+    if args.format == "mermaid" or args.open:
+        mermaid_output = visualize_dag_mermaid(dag, direction=args.direction)
+
+        if args.open:
+            # Extract just the mermaid code (without ```mermaid wrapper)
+            mermaid_code = mermaid_output.replace("```mermaid\n", "").replace("\n```", "")
+
+            # Encode for mermaid.live URL
+            # mermaid.live uses pako compression + base64
+            json_state = json.dumps({
+                "code": mermaid_code,
+                "mermaid": {"theme": "default"},
+                "autoSync": True,
+                "updateDiagram": True,
+            })
+            compressed = zlib.compress(json_state.encode("utf-8"), level=9)
+            encoded = base64.urlsafe_b64encode(compressed).decode("ascii")
+            url = f"https://mermaid.live/edit#pako:{encoded}"
+
+            print(f"Opening diagram in browser...")
+            print(f"URL: {url[:80]}...")
+            webbrowser.open(url)
+        else:
+            print(mermaid_output)
+    else:
+        print(visualize_dag(dag))
+
     return 0
 
 
