@@ -1,5 +1,6 @@
 """Tests for agent node functionality (SPEC-3)."""
 
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -300,6 +301,68 @@ Analyze the code.
                 agent.mcp_servers["github"].args,
                 ["@modelcontextprotocol/server-github"],
             )
+
+
+@unittest.skipUnless(
+    os.environ.get("ANTHROPIC_API_KEY") and os.environ.get("RUN_INTEGRATION_TESTS"),
+    "Integration tests require ANTHROPIC_API_KEY and RUN_INTEGRATION_TESTS=1",
+)
+class TestAgentIntegration(unittest.TestCase):
+    """Integration tests that require Claude Agent SDK and API key."""
+
+    def test_agent_execution_with_tools(self):
+        """Agent can use tools to read files."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+
+            (root / "trident.yaml").write_text("""
+trident: "0.2"
+name: integration-test
+nodes:
+  input:
+    type: input
+  reader:
+    type: agent
+    prompt: prompts/reader.prompt
+    allowed_tools:
+      - Read
+      - Glob
+    max_turns: 10
+  output:
+    type: output
+edges:
+  e1:
+    from: input
+    to: reader
+  e2:
+    from: reader
+    to: output
+    mapping:
+      result: result
+""")
+
+            (root / "prompts").mkdir()
+            (root / "prompts" / "reader.prompt").write_text("""---
+id: reader
+output:
+  format: json
+  schema:
+    result: string, What was found
+---
+Use Glob to list files in the current directory. Return {"result": "found N files"}.
+""")
+
+            # Create a test file to find
+            (root / "test.txt").write_text("hello world")
+
+            from trident.project import load_project
+            from trident.executor import run
+
+            project = load_project(root)
+            result = run(project, inputs={})
+
+            self.assertTrue(result.success)
+            self.assertIn("result", result.outputs.get("output", {}))
 
 
 if __name__ == "__main__":
