@@ -12,7 +12,14 @@ from .errors import (
     TridentError,
     ValidationError,
 )
-from .executor import ExecutionResult, ExecutionTrace, NodeTrace, run
+from .executor import (
+    Checkpoint,
+    CheckpointNodeData,
+    ExecutionResult,
+    ExecutionTrace,
+    NodeTrace,
+    run,
+)
 from .project import Project, load_project
 
 __version__ = "0.1.0"
@@ -24,6 +31,8 @@ __all__ = [
     "ExecutionResult",
     "ExecutionTrace",
     "NodeTrace",
+    "Checkpoint",
+    "CheckpointNodeData",
     "TridentError",
     "ParseError",
     "ValidationError",

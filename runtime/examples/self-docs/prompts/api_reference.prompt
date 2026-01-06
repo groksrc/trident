@@ -1,0 +1,69 @@
+---
+id: api_reference_writer
+name: API Reference Documentation Writer
+description: Write comprehensive API reference documentation
+
+output:
+  format: json
+  schema:
+    doc_path: string, Path to the written documentation file
+    summary: string, Brief summary of what was documented
+---
+
+You are a technical writer creating API reference documentation for Trident.
+
+## Context
+
+You have received analysis of the Trident codebase:
+
+{{analysis}}
+
+## Your Task
+
+Create a comprehensive API_REFERENCE.md file that documents:
+
+1. **Project Configuration (trident.yaml)**
+   - Full schema reference
+   - All node types and their options
+   - Edge configuration
+   - Defaults and inheritance
+
+2. **Prompt File Format (.prompt)**
+   - Frontmatter schema
+   - Template syntax (Jinja2)
+   - Output format options (text, json)
+   - Schema definitions
+
+3. **Python API**
+
+   ### Core Functions
+   - `load_project(path)` - Loading projects
+   - `run(project, ...)` - Executing projects
+
+   ### Data Classes
+   - `Project` - Project configuration
+   - `ExecutionResult` - Execution results
+   - `ExecutionTrace` - Detailed trace info
+   - `NodeTrace` - Per-node execution data
+
+4. **Agent Configuration**
+   - `allowed_tools` options
+   - `mcp_servers` configuration
+   - `permission_mode` settings
+   - `max_turns` and other limits
+
+5. **Error Types**
+   - `TridentError` hierarchy
+   - Common error scenarios
+   - Troubleshooting tips
+
+## Instructions
+
+Use the Write tool to create the file at: {{output_dir}}/API_REFERENCE.md
+
+Include code examples for each section. Use clear formatting with headers and code blocks.
+Target audience: Developers building with Trident.
+
+Return JSON with:
+- `doc_path`: The path where you wrote the file
+- `summary`: A 1-2 sentence summary of the documentation

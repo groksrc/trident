@@ -1,0 +1,125 @@
+{
+  "run_id": "c87d6f62-30b7-468a-ba8b-0a9489b8a839",
+  "project_name": "trident-self-docs",
+  "started_at": "2026-01-06T04:55:22.126724+00:00",
+  "updated_at": "2026-01-06T04:56:11.237141+00:00",
+  "status": "running",
+  "completed_nodes": {
+    "input": {
+      "outputs": {
+        "codebase_path": "/Users/drew/code/trident/runtime",
+        "output_dir": "/Users/drew/code/trident/runtime/examples/self-docs/output"
+      },
+      "completed_at": "2026-01-06T04:55:22.127025+00:00",
+      "session_id": null,
+      "cost_usd": null,
+      "num_turns": 0
+    },
+    "analyzer": {
+      "outputs": {
+        "analysis": {
+          "overview": "Trident is a lightweight agent orchestration runtime for building multi-agent workflows with DAG-based execution. It enables declarative composition of prompt nodes and autonomous agent nodes (via Claude Agent SDK) with conditional routing, data mapping between nodes, and support for tools and MCP servers.",
+          "core_modules": [
+            {
+              "name": "executor.py",
+              "purpose": "DAG execution engine - orchestrates node execution, manages traces, handles checkpointing, and coordinates async agent execution"
+            },
+            {
+              "name": "project.py",
+              "purpose": "Project loading and manifest parsing - loads trident.yaml, validates structure, and creates Project objects with nodes/edges"
+            },
+            {
+              "name": "agents.py",
+              "purpose": "Agent node execution via Claude Agent SDK - enables multi-turn autonomous agents with tools, MCP servers, and usage tracking"
+            },
+            {
+              "name": "parser.py",
+              "purpose": "Parser for .prompt files and YAML - handles frontmatter parsing, schema validation, and node definitions"
+            },
+            {
+              "name": "dag.py",
+              "purpose": "DAG construction and topological sorting - builds execution graphs from edges and validates cycles"
+            },
+            {
+              "name": "conditions.py",
+              "purpose": "Conditional edge evaluation - supports Python expressions for dynamic routing between nodes"
+            },
+            {
+              "name": "template.py",
+              "purpose": "Jinja2 template rendering for prompts and variable substitution"
+            },
+            {
+              "name": "providers/",
+              "purpose": "LLM provider implementations (Anthropic, OpenAI) with unified completion interface"
+            },
+            {
+              "name": "tools/",
+              "purpose": "Tool execution framework - Python tool runner for agent nodes"
+            }
+          ],
+          "public_api": {
+            "load_project": "Load a Trident project from directory containing trident.yaml",
+            "run": "Execute a project's workflow DAG with inputs, returns ExecutionResult with trace",
+            "Project": "Loaded project with nodes, edges, prompts, agents, and configuration",
+            "ExecutionResult": "Result object with outputs, trace, checkpoint, success status",
+            "ExecutionTrace": "Full execution history with per-node traces, tokens, costs",
+            "Checkpoint": "Serializable execution state for resuming workflows"
+          },
+          "node_types": [
+            "input",
+            "output",
+            "prompt",
+            "agent",
+            "tool"
+          ],
+          "node_type_details": {
+            "input": "Entry point - defines schema for workflow inputs",
+            "output": "Exit point - collects final outputs in JSON or text format",
+            "prompt": "Single-turn LLM completion with template rendering",
+            "agent": "Multi-turn autonomous agent with tools and MCP servers (requires trident[agents])",
+            "tool": "Python function execution as a workflow node"
+          },
+          "key_features": [
+            "Declarative YAML workflow definition (trident.yaml)",
+            "DAG-based execution with topological sorting",
+            "Conditional edges with Python expressions",
+            "Data mapping between nodes with Jinja2 templating",
+            "Agent nodes with Claude Agent SDK integration",
+            "Tool and MCP server support for agents",
+            "Execution tracing with token/cost tracking",
+            "Checkpoint/resume capability for long workflows",
+            "Multiple LLM provider support (Anthropic, OpenAI)",
+            "Parallel node execution where possible"
+          ],
+          "examples": [
+            "self-docs"
+          ],
+          "workflow_structure": {
+            "manifest": "trident.yaml - defines nodes, edges, mappings, and configuration",
+            "prompts": "prompts/*.prompt - frontmatter + template body for prompts/agents",
+            "tools": "Optional Python tools for agent nodes",
+            "output": "Generated outputs and execution traces"
+          }
+        },
+        "output_dir": "/Users/drew/code/trident/runtime/examples/self-docs/output"
+      },
+      "completed_at": "2026-01-06T04:56:11.237100+00:00",
+      "session_id": "914d47f2-2a83-4934-b27d-50371c5e218e",
+      "cost_usd": 0.12564899999999998,
+      "num_turns": 17
+    }
+  },
+  "pending_nodes": [
+    "api_reference_writer",
+    "architecture_writer",
+    "getting_started_writer",
+    "reviewer",
+    "output"
+  ],
+  "total_cost_usd": 0.12564899999999998,
+  "inputs": {
+    "codebase_path": "/Users/drew/code/trident/runtime",
+    "output_dir": "/Users/drew/code/trident/runtime/examples/self-docs/output"
+  },
+  "entrypoint": "input"
+}

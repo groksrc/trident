@@ -2,8 +2,9 @@
 
 import json
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -136,6 +137,80 @@ class ExecutionResult:
         return "\n".join(lines)
 
 
+@dataclass
+class CheckpointNodeData:
+    """Data for a completed node in a checkpoint."""
+
+    outputs: dict[str, Any]
+    completed_at: str
+    session_id: str | None = None
+    cost_usd: float | None = None
+    num_turns: int = 0
+
+
+@dataclass
+class Checkpoint:
+    """Workflow execution checkpoint for resumption."""
+
+    run_id: str
+    project_name: str
+    started_at: str
+    updated_at: str
+    status: str  # "running", "interrupted", "completed", "failed"
+    completed_nodes: dict[str, CheckpointNodeData] = field(default_factory=dict)
+    pending_nodes: list[str] = field(default_factory=list)
+    total_cost_usd: float = 0.0
+    inputs: dict[str, Any] = field(default_factory=dict)
+    entrypoint: str | None = None
+
+    def save(self, checkpoint_dir: Path) -> Path:
+        """Save checkpoint to disk."""
+        checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        checkpoint_path = checkpoint_dir / f"{self.run_id}.json"
+
+        # Convert to JSON-serializable dict
+        data = {
+            "run_id": self.run_id,
+            "project_name": self.project_name,
+            "started_at": self.started_at,
+            "updated_at": self.updated_at,
+            "status": self.status,
+            "completed_nodes": {
+                k: asdict(v) for k, v in self.completed_nodes.items()
+            },
+            "pending_nodes": self.pending_nodes,
+            "total_cost_usd": self.total_cost_usd,
+            "inputs": self.inputs,
+            "entrypoint": self.entrypoint,
+        }
+
+        checkpoint_path.write_text(json.dumps(data, indent=2, default=str))
+        return checkpoint_path
+
+    @classmethod
+    def load(cls, checkpoint_path: Path) -> "Checkpoint":
+        """Load checkpoint from disk."""
+        data = json.loads(checkpoint_path.read_text())
+
+        # Reconstruct CheckpointNodeData objects
+        completed_nodes = {
+            k: CheckpointNodeData(**v) for k, v in data.get("completed_nodes", {}).items()
+        }
+
+        return cls(
+            run_id=data["run_id"],
+            project_name=data["project_name"],
+            started_at=data["started_at"],
+            updated_at=data["updated_at"],
+            status=data["status"],
+            completed_nodes=completed_nodes,
+            pending_nodes=data.get("pending_nodes", []),
+            total_cost_usd=data.get("total_cost_usd", 0.0),
+            inputs=data.get("inputs", {}),
+            entrypoint=data.get("entrypoint"),
+        )
+
+
 def _now_iso() -> str:
     return datetime.now(UTC).isoformat()
 
@@ -238,6 +313,8 @@ def run(
     verbose: bool = False,
     resume_sessions: dict[str, str] | None = None,
     on_agent_message: "Callable[[str, Any], None] | None" = None,
+    checkpoint_dir: str | Path | None = None,
+    resume_from: str | Path | None = None,
 ) -> ExecutionResult:
     """Execute a Trident project.
 
@@ -249,6 +326,8 @@ def run(
         verbose: If True, print node execution progress to stdout
         resume_sessions: Optional dict mapping node_id to session_id for resuming agents
         on_agent_message: Optional callback for agent messages (type, content)
+        checkpoint_dir: Directory to save checkpoints (enables checkpointing)
+        resume_from: Checkpoint path or run_id to resume from
 
     Returns:
         ExecutionResult with outputs and trace. Always returns, even on failure.
@@ -271,22 +350,95 @@ def run(
         else:
             raise TridentError("No entrypoint specified and none defined in project")
 
+    # Handle checkpointing and resume
+    checkpoint: Checkpoint | None = None
+    checkpoint_path_obj: Path | None = None
+
+    if checkpoint_dir:
+        checkpoint_path_obj = Path(checkpoint_dir) if isinstance(checkpoint_dir, str) else checkpoint_dir
+
+    if resume_from:
+        # Load checkpoint to resume from
+        resume_path = Path(resume_from) if isinstance(resume_from, str) else resume_from
+
+        # If it's just a run_id (not a full path), look in checkpoint_dir
+        if not resume_path.exists() and checkpoint_path_obj:
+            resume_path = checkpoint_path_obj / f"{resume_from}.json"
+
+        if not resume_path.exists():
+            raise TridentError(f"Checkpoint not found: {resume_from}")
+
+        checkpoint = Checkpoint.load(resume_path)
+        checkpoint.status = "running"
+        checkpoint.updated_at = _now_iso()
+
+        if verbose:
+            completed = len(checkpoint.completed_nodes)
+            print(f"Resuming from checkpoint: {checkpoint.run_id}")
+            print(f"  Completed nodes: {completed}")
+            print(f"  Pending nodes: {len(checkpoint.pending_nodes)}")
+
+        # Use inputs from checkpoint if not provided
+        if not inputs and checkpoint.inputs:
+            inputs = checkpoint.inputs
+
+        # Build resume_sessions from checkpoint if not provided
+        if not resume_sessions:
+            resume_sessions = {}
+            for node_id, node_data in checkpoint.completed_nodes.items():
+                if node_data.session_id:
+                    resume_sessions[node_id] = node_data.session_id
+
     # Initialize execution state
-    execution_id = str(uuid4())
+    execution_id = checkpoint.run_id if checkpoint else str(uuid4())
     trace = ExecutionTrace(execution_id=execution_id, start_time=_now_iso())
     node_outputs: dict[str, dict[str, Any]] = {}
     tool_runner = PythonToolRunner(project.root)
     execution_error: NodeExecutionError | None = None
+
+    # Create new checkpoint if checkpointing is enabled and not resuming
+    if checkpoint_path_obj and not checkpoint:
+        checkpoint = Checkpoint(
+            run_id=execution_id,
+            project_name=project.name,
+            started_at=_now_iso(),
+            updated_at=_now_iso(),
+            status="running",
+            pending_nodes=list(dag.execution_order),
+            inputs=inputs or {},
+            entrypoint=entrypoint,
+        )
+        checkpoint.save(checkpoint_path_obj)
+        if verbose:
+            print(f"Checkpoint created: {execution_id}")
 
     # Seed input nodes with provided inputs
     if inputs:
         for node_id in project.input_nodes:
             node_outputs[node_id] = inputs.copy()
 
+    # Restore outputs from checkpoint for completed nodes
+    if checkpoint:
+        for node_id, node_data in checkpoint.completed_nodes.items():
+            node_outputs[node_id] = node_data.outputs
+
     # Execute nodes in topological order
     for node_id in dag.execution_order:
         node = dag.nodes[node_id]
         node_trace = NodeTrace(id=node_id, start_time=_now_iso())
+
+        # Skip nodes already completed in checkpoint
+        if checkpoint and node_id in checkpoint.completed_nodes:
+            node_data = checkpoint.completed_nodes[node_id]
+            node_trace.output = node_data.outputs
+            node_trace.session_id = node_data.session_id
+            node_trace.cost_usd = node_data.cost_usd
+            node_trace.num_turns = node_data.num_turns
+            node_trace.end_time = node_data.completed_at
+            trace.nodes.append(node_trace)
+            if verbose:
+                print(f"Skipping completed node: {node_id}")
+            continue
 
         try:
             if verbose:
@@ -347,6 +499,12 @@ def run(
             node_trace.end_time = _now_iso()
             trace.nodes.append(node_trace)
 
+            # Update checkpoint with failure status
+            if checkpoint and checkpoint_path_obj:
+                checkpoint.status = "failed"
+                checkpoint.updated_at = _now_iso()
+                checkpoint.save(checkpoint_path_obj)
+
             # Wrap in NodeExecutionError with full context
             execution_error = NodeExecutionError(
                 node_id=node_id,
@@ -363,6 +521,22 @@ def run(
         node_trace.end_time = _now_iso()
         trace.nodes.append(node_trace)
 
+        # Save checkpoint after each successful node
+        if checkpoint and checkpoint_path_obj:
+            checkpoint.completed_nodes[node_id] = CheckpointNodeData(
+                outputs=node_trace.output,
+                completed_at=node_trace.end_time,
+                session_id=node_trace.session_id,
+                cost_usd=node_trace.cost_usd,
+                num_turns=node_trace.num_turns,
+            )
+            if node_id in checkpoint.pending_nodes:
+                checkpoint.pending_nodes.remove(node_id)
+            if node_trace.cost_usd:
+                checkpoint.total_cost_usd += node_trace.cost_usd
+            checkpoint.updated_at = _now_iso()
+            checkpoint.save(checkpoint_path_obj)
+
     # Collect final outputs from output nodes (even partial on failure)
     final_outputs: dict[str, Any] = {}
     for out_node_id in project.output_nodes:
@@ -377,7 +551,15 @@ def run(
                 break
 
     trace.end_time = _now_iso()
-    return ExecutionResult(outputs=final_outputs, trace=trace, error=execution_error)
+
+    # Final checkpoint update
+    if checkpoint and checkpoint_path_obj:
+        checkpoint.status = "completed" if not execution_error else "failed"
+        checkpoint.updated_at = _now_iso()
+        checkpoint.save(checkpoint_path_obj)
+
+    result = ExecutionResult(outputs=final_outputs, trace=trace, error=execution_error)
+    return result
 
 
 def _execute_prompt_node(

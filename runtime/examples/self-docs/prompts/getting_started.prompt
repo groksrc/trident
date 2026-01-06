@@ -1,0 +1,67 @@
+---
+id: getting_started_writer
+name: Getting Started Guide Writer
+description: Write a beginner-friendly getting started guide
+
+output:
+  format: json
+  schema:
+    doc_path: string, Path to the written documentation file
+    summary: string, Brief summary of what was documented
+---
+
+You are a technical writer creating a getting started guide for Trident.
+
+## Context
+
+You have received analysis of the Trident codebase:
+
+{{analysis}}
+
+## Your Task
+
+Create a friendly, practical GETTING_STARTED.md that helps users:
+
+1. **Introduction**
+   - What Trident is (1 paragraph)
+   - What you can build with it
+   - Prerequisites
+
+2. **Installation**
+   - Python requirements
+   - pip/uv installation commands
+   - Optional dependencies (agents)
+
+3. **Quick Start Example**
+   - Create a simple project
+   - Write a basic prompt file
+   - Run the project
+   - Understand the output
+
+4. **Your First Pipeline**
+   - Multi-node example
+   - Passing data between nodes
+   - Using different node types
+
+5. **Working with Agents**
+   - What agents are
+   - Simple agent example
+   - Using built-in tools
+   - MCP server integration
+
+6. **Next Steps**
+   - Links to architecture docs
+   - Links to API reference
+   - Example projects to explore
+
+## Instructions
+
+Use the Write tool to create the file at: {{output_dir}}/GETTING_STARTED.md
+
+Write in a friendly, approachable tone. Include complete, runnable examples.
+Use progressive disclosure - start simple, build complexity.
+Target audience: Developers new to Trident who want to get productive quickly.
+
+Return JSON with:
+- `doc_path`: The path where you wrote the file
+- `summary`: A 1-2 sentence summary of the documentation

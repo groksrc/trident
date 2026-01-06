@@ -1,0 +1,123 @@
+trident: "0.2"
+name: trident-self-docs
+version: "0.1.0"
+description: "A Trident workflow that documents Trident itself"
+
+defaults:
+  model: claude-sonnet-4-20250514
+
+nodes:
+  input:
+    type: input
+    schema:
+      codebase_path: string  # Path to Trident runtime
+      output_dir: string     # Where to write docs
+
+  # Phase 1: Code Analysis
+  analyzer:
+    type: agent
+    prompt: prompts/analyzer.prompt
+    allowed_tools:
+      - Read
+      - Glob
+      - Grep
+    permission_mode: bypassPermissions
+    max_turns: 20
+
+  # Phase 2: Documentation Generation (parallel)
+  architecture_writer:
+    type: agent
+    prompt: prompts/architecture.prompt
+    allowed_tools:
+      - Read
+      - Write
+    permission_mode: bypassPermissions
+    max_turns: 20
+
+  api_reference_writer:
+    type: agent
+    prompt: prompts/api_reference.prompt
+    allowed_tools:
+      - Read
+      - Write
+    permission_mode: bypassPermissions
+    max_turns: 25
+
+  getting_started_writer:
+    type: agent
+    prompt: prompts/getting_started.prompt
+    allowed_tools:
+      - Read
+      - Write
+    permission_mode: bypassPermissions
+    max_turns: 20
+
+  # Phase 3: Review
+  reviewer:
+    type: agent
+    prompt: prompts/reviewer.prompt
+    allowed_tools:
+      - Read
+      - Glob
+    permission_mode: bypassPermissions
+    max_turns: 15
+
+  output:
+    type: output
+
+edges:
+  input_to_analyzer:
+    from: input
+    to: analyzer
+    mapping:
+      codebase_path: codebase_path
+      output_dir: output_dir
+
+  # Analysis feeds into all writers
+  analyzer_to_arch:
+    from: analyzer
+    to: architecture_writer
+    mapping:
+      analysis: analysis
+      output_dir: output_dir
+
+  analyzer_to_api:
+    from: analyzer
+    to: api_reference_writer
+    mapping:
+      analysis: analysis
+      output_dir: output_dir
+
+  analyzer_to_getting_started:
+    from: analyzer
+    to: getting_started_writer
+    mapping:
+      analysis: analysis
+      output_dir: output_dir
+
+  # All writers feed into reviewer
+  arch_to_reviewer:
+    from: architecture_writer
+    to: reviewer
+    mapping:
+      architecture_doc: doc_path
+
+  api_to_reviewer:
+    from: api_reference_writer
+    to: reviewer
+    mapping:
+      api_doc: doc_path
+
+  getting_started_to_reviewer:
+    from: getting_started_writer
+    to: reviewer
+    mapping:
+      getting_started_doc: doc_path
+
+  reviewer_to_output:
+    from: reviewer
+    to: output
+    mapping:
+      review: review
+      quality_score: quality_score
+      suggestions: suggestions
