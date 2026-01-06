@@ -167,6 +167,10 @@ def _gather_inputs(
     for edge in node.incoming_edges:
         source_output = node_outputs.get(edge.from_node, {})
 
+        # Skip edges from nodes that produced no output (e.g., skipped nodes)
+        if not source_output:
+            continue
+
         for mapping in edge.mappings:
             # Source expression can be "field" or "output.field.subfield"
             value = get_nested(source_output, mapping.source_expr)
@@ -177,7 +181,9 @@ def _gather_inputs(
                     alt_expr = alt_expr[7:]
                 value = get_nested(source_output, alt_expr)
 
-            inputs[mapping.target_var] = value
+            # Only set if value is not None (don't overwrite with None from skipped nodes)
+            if value is not None or mapping.target_var not in inputs:
+                inputs[mapping.target_var] = value
 
     return inputs
 
