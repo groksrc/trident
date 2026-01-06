@@ -78,11 +78,34 @@ def _parse_value(value: str) -> Any:
     if not value:
         return None
 
+    # Strip trailing comments (but not inside quotes)
+    if not value.startswith('"') and not value.startswith("'"):
+        comment_pos = value.find("  #")
+        if comment_pos > 0:
+            value = value[:comment_pos].strip()
+
     # Strip quotes
     if (value.startswith('"') and value.endswith('"')) or (
         value.startswith("'") and value.endswith("'")
     ):
         return value[1:-1]
+
+    # Handle inline JSON arrays like ["item1", "item2"]
+    if value.startswith("[") and value.endswith("]"):
+        inner = value[1:-1].strip()
+        if not inner:
+            return []
+        # Parse comma-separated items
+        items = []
+        for item in inner.split(","):
+            item = item.strip()
+            # Strip quotes from each item
+            if (item.startswith('"') and item.endswith('"')) or (
+                item.startswith("'") and item.endswith("'")
+            ):
+                item = item[1:-1]
+            items.append(item)
+        return items
 
     # Booleans
     if value.lower() == "true":

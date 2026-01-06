@@ -82,12 +82,13 @@ async def execute_agent_async(
             else:
                 server_env[key] = value
 
-        mcp_servers[server_name] = {
-            "type": "stdio",
+        server_dict: dict[str, Any] = {
             "command": server_config.command,
             "args": server_config.args,
-            "env": server_env if server_env else None,
         }
+        if server_env:
+            server_dict["env"] = server_env
+        mcp_servers[server_name] = server_dict
 
     # Determine working directory
     cwd = agent_node.cwd
