@@ -134,6 +134,16 @@ async def execute_agent_async(
     if not cwd:
         cwd = os.environ.get("TRIDENT_WORKSPACE", project_root)
 
+    # Build output format for structured outputs (if JSON schema defined)
+    output_format: dict[str, Any] | None = None
+    output_schema = agent_node.prompt_node.output
+    if output_schema.format == "json" and output_schema.fields:
+        json_schema = _build_json_schema(output_schema.fields)
+        output_format = {
+            "type": "json_schema",
+            "schema": json_schema,
+        }
+
     # Build SDK options
     options = ClaudeAgentOptions(
         allowed_tools=agent_node.allowed_tools or [],
@@ -142,6 +152,7 @@ async def execute_agent_async(
         max_turns=agent_node.max_turns,
         permission_mode=agent_node.permission_mode,  # type: ignore[arg-type]
         resume=resume_session,
+        output_format=output_format,  # type: ignore[arg-type]
     )
 
     # Execute agent and collect response
@@ -200,32 +211,51 @@ async def execute_agent_async(
             f"Agent '{agent_node.id}' execution failed: {e}"
         ) from e
 
-    # Handle empty response
-    if not last_assistant_text.strip():
+    # Check for structured output first (API-level validation)
+    structured_output: dict[str, Any] | None = None
+    if result_message and hasattr(result_message, "structured_output"):
+        structured_output = result_message.structured_output  # type: ignore[union-attr]
+
+    # Handle structured output errors
+    if (
+        result_message
+        and hasattr(result_message, "subtype")
+        and result_message.subtype == "error_max_structured_output_retries"  # type: ignore[union-attr]
+    ):
         raise AgentExecutionError(
-            f"Agent '{agent_node.id}' returned empty response"
+            f"Agent '{agent_node.id}' could not produce valid structured output "
+            f"matching the schema after multiple retries"
         )
 
-    response_text = last_assistant_text
-
-    # Parse output based on expected format
-    output_schema = agent_node.prompt_node.output
-    if output_schema.format == "json":
-        try:
-            parsed = _parse_json_response(response_text)
-        except json.JSONDecodeError as e:
-            raise AgentExecutionError(
-                f"Agent '{agent_node.id}' returned invalid JSON. "
-                f"Response preview: {response_text[:200]!r}"
-            ) from e
-
-        # Validate against schema if defined
-        if output_schema.fields:
-            _validate_agent_output(parsed, output_schema.fields, agent_node.id)
-
-        output = parsed
+    # Use structured output if available (preferred - API validated)
+    if structured_output is not None:
+        output = structured_output
     else:
-        output = {"text": response_text}
+        # Fallback to text parsing (for backwards compatibility or text output)
+        if not last_assistant_text.strip():
+            raise AgentExecutionError(
+                f"Agent '{agent_node.id}' returned empty response"
+            )
+
+        response_text = last_assistant_text
+
+        # Parse output based on expected format
+        if output_schema.format == "json":
+            try:
+                parsed = _parse_json_response(response_text)
+            except json.JSONDecodeError as e:
+                raise AgentExecutionError(
+                    f"Agent '{agent_node.id}' returned invalid JSON. "
+                    f"Response preview: {response_text[:200]!r}"
+                ) from e
+
+            # Validate against schema if defined
+            if output_schema.fields:
+                _validate_agent_output(parsed, output_schema.fields, agent_node.id)
+
+            output = parsed
+        else:
+            output = {"text": response_text}
 
     # Build result with usage metrics
     tokens: dict[str, int] = {}
@@ -281,6 +311,39 @@ def _validate_agent_output(
                 f"Agent '{agent_id}' output field '{field_name}' "
                 f"expected {field_type}, got {type(value).__name__}"
             )
+
+
+def _build_json_schema(fields: dict[str, tuple[str, str]]) -> dict[str, Any]:
+    """Build JSON Schema from output field definitions.
+
+    Args:
+        fields: Dictionary of {field_name: (type, description)}
+
+    Returns:
+        JSON Schema dictionary suitable for structured outputs
+    """
+    type_mapping = {
+        "string": {"type": "string"},
+        "number": {"type": "number"},
+        "integer": {"type": "integer"},
+        "boolean": {"type": "boolean"},
+        "array": {"type": "array"},
+        "object": {"type": "object"},
+    }
+
+    properties: dict[str, Any] = {}
+    for field_name, (field_type, description) in fields.items():
+        prop = type_mapping.get(field_type, {"type": "string"}).copy()
+        if description:
+            prop["description"] = description
+        properties[field_name] = prop
+
+    return {
+        "type": "object",
+        "properties": properties,
+        "required": list(fields.keys()),
+        "additionalProperties": False,
+    }
 
 
 def _parse_json_response(text: str) -> dict[str, Any]:
@@ -341,6 +404,39 @@ def _parse_json_response(text: str) -> dict[str, Any]:
                 return {"result": parsed}
             except json.JSONDecodeError:
                 pass
+
+    # Try to find JSON object embedded in prose (e.g., "Here's the output: {...}")
+    brace_start = text.find("{")
+    if brace_start >= 0:
+        # Find matching closing brace
+        depth = 0
+        in_string = False
+        escape_next = False
+        for i, char in enumerate(text[brace_start:], brace_start):
+            if escape_next:
+                escape_next = False
+                continue
+            if char == "\\":
+                escape_next = True
+                continue
+            if char == '"' and not escape_next:
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if char == "{":
+                depth += 1
+            elif char == "}":
+                depth -= 1
+                if depth == 0:
+                    try:
+                        parsed = json.loads(text[brace_start : i + 1])
+                        if isinstance(parsed, dict):
+                            return parsed
+                        return {"result": parsed}
+                    except json.JSONDecodeError:
+                        pass
+                    break
 
     raise json.JSONDecodeError(
         "No valid JSON found in response. Expected raw JSON or markdown code block.",

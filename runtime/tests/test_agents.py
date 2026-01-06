@@ -210,6 +210,65 @@ class TestSchemaValidation(unittest.TestCase):
         )
 
 
+class TestJsonSchemaBuilder(unittest.TestCase):
+    """Tests for JSON schema builder for structured outputs."""
+
+    def test_build_basic_schema(self):
+        """Build JSON schema from field definitions."""
+        from trident.agents import _build_json_schema
+
+        fields = {
+            "name": ("string", "User name"),
+            "age": ("number", "User age"),
+            "active": ("boolean", "Active flag"),
+        }
+
+        schema = _build_json_schema(fields)
+
+        self.assertEqual(schema["type"], "object")
+        self.assertEqual(schema["additionalProperties"], False)
+        self.assertEqual(set(schema["required"]), {"name", "age", "active"})
+
+        props = schema["properties"]
+        self.assertEqual(props["name"]["type"], "string")
+        self.assertEqual(props["name"]["description"], "User name")
+        self.assertEqual(props["age"]["type"], "number")
+        self.assertEqual(props["active"]["type"], "boolean")
+
+    def test_build_schema_all_types(self):
+        """Build schema with all supported types."""
+        from trident.agents import _build_json_schema
+
+        fields = {
+            "str_field": ("string", ""),
+            "num_field": ("number", ""),
+            "int_field": ("integer", ""),
+            "bool_field": ("boolean", ""),
+            "arr_field": ("array", ""),
+            "obj_field": ("object", ""),
+        }
+
+        schema = _build_json_schema(fields)
+        props = schema["properties"]
+
+        self.assertEqual(props["str_field"]["type"], "string")
+        self.assertEqual(props["num_field"]["type"], "number")
+        self.assertEqual(props["int_field"]["type"], "integer")
+        self.assertEqual(props["bool_field"]["type"], "boolean")
+        self.assertEqual(props["arr_field"]["type"], "array")
+        self.assertEqual(props["obj_field"]["type"], "object")
+
+    def test_build_schema_empty_description(self):
+        """Schema without descriptions still valid."""
+        from trident.agents import _build_json_schema
+
+        fields = {"result": ("string", "")}
+        schema = _build_json_schema(fields)
+
+        # Empty description should not add key
+        self.assertNotIn("description", schema["properties"]["result"])
+
+
 class TestAgentInDAG(unittest.TestCase):
     """Tests for agent nodes in DAG structure."""
 

@@ -52,3 +52,12 @@ node_modules/
 .output/
 *.local
 *.orig
+
+# Trident runtime artifacts
+.trident/
+*_trace*.json
+execution_trace.json
+
+# Generated example outputs (keep examples clean)
+runtime/examples/*/output/
+runtime/examples/trident-docs/
