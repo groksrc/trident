@@ -67,6 +67,38 @@ class TestDAG(unittest.TestCase):
         self.assertEqual(dag.execution_order[0], "input")
         self.assertEqual(dag.execution_order[-1], "output")
 
+    def test_execution_levels_parallel(self):
+        """Test that nodes that can run in parallel are grouped together."""
+        # Diamond pattern: input -> [a, b] -> output
+        project = self._make_project(
+            [
+                ("input", "a"),
+                ("input", "b"),
+                ("a", "output"),
+                ("b", "output"),
+            ],
+            prompts=["a", "b"],
+        )
+        dag = build_dag(project)
+
+        # Should have 3 levels: [input], [a, b], [output]
+        self.assertEqual(len(dag.execution_levels), 3)
+        self.assertEqual(dag.execution_levels[0], ["input"])
+        self.assertEqual(sorted(dag.execution_levels[1]), ["a", "b"])  # a and b in parallel
+        self.assertEqual(dag.execution_levels[2], ["output"])
+
+    def test_execution_levels_sequential(self):
+        """Test that dependent nodes are in separate levels."""
+        # Linear: a -> b -> c
+        project = self._make_project([("a", "b"), ("b", "c")], prompts=["b"])
+        dag = build_dag(project)
+
+        # Should have 3 levels, each with 1 node
+        self.assertEqual(len(dag.execution_levels), 3)
+        self.assertEqual(dag.execution_levels[0], ["a"])
+        self.assertEqual(dag.execution_levels[1], ["b"])
+        self.assertEqual(dag.execution_levels[2], ["c"])
+
     def test_cycle_detection(self):
         project = self._make_project(
             [

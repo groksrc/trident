@@ -21,7 +21,8 @@ class DAG:
     """Directed Acyclic Graph for execution."""
 
     nodes: dict[str, DAGNode]
-    execution_order: list[str]  # Topologically sorted node IDs
+    execution_order: list[str]  # Topologically sorted node IDs (flat, for backward compat)
+    execution_levels: list[list[str]]  # Nodes grouped by level (parallel within level)
 
 
 def build_dag(project: Project) -> DAG:
@@ -73,28 +74,35 @@ def build_dag(project: Project) -> DAG:
             # Prompt with no incoming edges and not an entrypoint - might be okay if unused
             pass
 
-    # Topological sort (Kahn's algorithm)
+    # Topological sort with level grouping (modified Kahn's algorithm)
+    # Nodes at the same level can execute in parallel
     in_degree = {node_id: len(node.incoming_edges) for node_id, node in nodes.items()}
-    queue = [node_id for node_id, degree in in_degree.items() if degree == 0]
-    execution_order = []
+    current_level = [node_id for node_id, degree in in_degree.items() if degree == 0]
+    execution_levels: list[list[str]] = []
+    execution_order: list[str] = []
 
-    while queue:
-        # Sort for deterministic ordering
-        queue.sort()
-        current = queue.pop(0)
-        execution_order.append(current)
+    while current_level:
+        # Sort for deterministic ordering within level
+        current_level.sort()
+        execution_levels.append(current_level)
+        execution_order.extend(current_level)
 
-        for edge in nodes[current].outgoing_edges:
-            in_degree[edge.to_node] -= 1
-            if in_degree[edge.to_node] == 0:
-                queue.append(edge.to_node)
+        # Find next level - nodes whose dependencies are all satisfied
+        next_level = []
+        for node_id in current_level:
+            for edge in nodes[node_id].outgoing_edges:
+                in_degree[edge.to_node] -= 1
+                if in_degree[edge.to_node] == 0:
+                    next_level.append(edge.to_node)
+
+        current_level = next_level
 
     # Check for cycles
     if len(execution_order) != len(nodes):
         remaining = set(nodes.keys()) - set(execution_order)
         raise DAGError(f"Cycle detected in DAG. Nodes involved: {remaining}")
 
-    return DAG(nodes=nodes, execution_order=execution_order)
+    return DAG(nodes=nodes, execution_order=execution_order, execution_levels=execution_levels)
 
 
 def get_upstream_nodes(dag: DAG, node_id: str) -> list[str]:

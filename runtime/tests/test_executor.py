@@ -184,5 +184,57 @@ class TestDryRunExecution(unittest.TestCase):
         self.assertIsNone(result.error)
 
 
+class TestParallelExecution(unittest.TestCase):
+    """Tests for parallel execution of independent nodes."""
+
+    def _make_parallel_project(self) -> Project:
+        """Create a project with parallel nodes (diamond pattern)."""
+        project = Project(name="test", root=Path("."))
+        project.input_nodes["input"] = InputNode(id="input")
+        project.output_nodes["output"] = OutputNode(id="output")
+        project.output_nodes["branch_a"] = OutputNode(id="branch_a")
+        project.output_nodes["branch_b"] = OutputNode(id="branch_b")
+
+        # Diamond: input -> [branch_a, branch_b] -> output
+        project.edges["e1"] = Edge(id="e1", from_node="input", to_node="branch_a")
+        project.edges["e2"] = Edge(id="e2", from_node="input", to_node="branch_b")
+        project.edges["e3"] = Edge(id="e3", from_node="branch_a", to_node="output")
+        project.edges["e4"] = Edge(id="e4", from_node="branch_b", to_node="output")
+        project.entrypoints = ["input"]
+        return project
+
+    def test_parallel_nodes_in_same_level(self):
+        """Nodes that can run in parallel are grouped in same execution level."""
+        from trident.dag import build_dag
+
+        project = self._make_parallel_project()
+        dag = build_dag(project)
+
+        # Should have 3 levels
+        self.assertEqual(len(dag.execution_levels), 3)
+
+        # Level 0: input
+        self.assertEqual(dag.execution_levels[0], ["input"])
+
+        # Level 1: branch_a and branch_b (parallel)
+        self.assertEqual(sorted(dag.execution_levels[1]), ["branch_a", "branch_b"])
+
+        # Level 2: output
+        self.assertEqual(dag.execution_levels[2], ["output"])
+
+    def test_dry_run_with_parallel_nodes(self):
+        """Dry run succeeds with parallel node structure."""
+        project = self._make_parallel_project()
+        result = run(project, dry_run=True, inputs={"value": 42})
+
+        self.assertTrue(result.success)
+        # All nodes should be in trace
+        node_ids = {n.id for n in result.trace.nodes}
+        self.assertIn("input", node_ids)
+        self.assertIn("branch_a", node_ids)
+        self.assertIn("branch_b", node_ids)
+        self.assertIn("output", node_ids)
+
+
 if __name__ == "__main__":
     unittest.main()

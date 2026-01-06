@@ -1,5 +1,6 @@
 """DAG execution engine."""
 
+import asyncio
 import json
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
@@ -146,6 +147,17 @@ class ExecutionResult:
                     lines.append(f"    - {node.id}: {node.error}")
 
         return "\n".join(lines)
+
+
+@dataclass
+class _NodeExecutionResult:
+    """Result of executing a single node (internal use for parallel execution)."""
+
+    node_id: str
+    node_trace: "NodeTrace"
+    output: dict[str, Any] | None = None
+    error: Exception | None = None
+    skipped: bool = False
 
 
 @dataclass
@@ -469,136 +481,109 @@ def run(
         for node_id, node_data in checkpoint.completed_nodes.items():
             node_outputs[node_id] = node_data.outputs
 
-    # Execute nodes in topological order
-    for node_id in dag.execution_order:
-        node = dag.nodes[node_id]
-        node_trace = NodeTrace(id=node_id, start_time=_now_iso())
+    # Execute nodes level by level (parallel within each level)
+    async def _execute_levels() -> None:
+        nonlocal execution_error
 
-        # Skip nodes already completed in checkpoint
-        if checkpoint and node_id in checkpoint.completed_nodes:
-            node_data = checkpoint.completed_nodes[node_id]
-            node_trace.output = node_data.outputs
-            node_trace.session_id = node_data.session_id
-            node_trace.cost_usd = node_data.cost_usd
-            node_trace.num_turns = node_data.num_turns
-            node_trace.end_time = node_data.completed_at
-            trace.nodes.append(node_trace)
-            if verbose:
-                print(f"Skipping completed node: {node_id}")
-            continue
+        for level in dag.execution_levels:
+            if execution_error:
+                break  # Stop if previous level had error
 
-        try:
-            if verbose:
-                print(f"Executing node: {node_id}")
+            # Partition nodes: those to skip vs those to execute
+            nodes_to_skip = []
+            nodes_to_execute = []
 
-            # Check if any incoming edge condition blocks execution
-            should_run = True
-            for edge in node.incoming_edges:
-                source_output = node_outputs.get(edge.from_node, {})
-                if not _should_execute(edge, source_output):
-                    should_run = False
-                    break
+            for node_id in level:
+                if checkpoint and node_id in checkpoint.completed_nodes:
+                    nodes_to_skip.append(node_id)
+                else:
+                    nodes_to_execute.append(node_id)
 
-            if not should_run:
-                node_trace.skipped = True
-                node_trace.end_time = _now_iso()
+            # Handle skipped nodes (from checkpoint)
+            for node_id in nodes_to_skip:
+                node_data = checkpoint.completed_nodes[node_id]
+                node_trace = NodeTrace(id=node_id, start_time=_now_iso())
+                node_trace.output = node_data.outputs
+                node_trace.session_id = node_data.session_id
+                node_trace.cost_usd = node_data.cost_usd
+                node_trace.num_turns = node_data.num_turns
+                node_trace.end_time = node_data.completed_at
                 trace.nodes.append(node_trace)
+                if verbose:
+                    print(f"Skipping completed node: {node_id}")
+
+            if not nodes_to_execute:
                 continue
 
-            # Handle different node types
-            if node.type == "input":
-                # Input nodes already seeded
-                node_trace.output = node_outputs.get(node_id, {})
+            # Execute all nodes in this level in parallel
+            if verbose and len(nodes_to_execute) > 1:
+                print(f"Executing {len(nodes_to_execute)} nodes in parallel: {nodes_to_execute}")
 
-            elif node.type == "output":
-                # Output nodes collect upstream data
-                node_trace.input = _gather_inputs(node_id, dag, node_outputs)
-                node_trace.output = node_trace.input
-                node_outputs[node_id] = node_trace.output
-
-            elif node.type == "prompt":
-                _execute_prompt_node(
-                    node_id, project, dag, node_outputs, node_trace, registry, dry_run
+            tasks = [
+                _execute_node_async(
+                    node_id=node_id,
+                    project=project,
+                    dag=dag,
+                    node_outputs=node_outputs,
+                    registry=registry,
+                    tool_runner=tool_runner,
+                    dry_run=dry_run,
+                    verbose=verbose,
+                    resume_sessions=resume_sessions,
+                    on_agent_message=on_agent_message,
+                    checkpoint_dir=checkpoint_dir,
+                    artifact_manager=artifact_manager,
+                    checkpoint=checkpoint,
                 )
+                for node_id in nodes_to_execute
+            ]
 
-            elif node.type == "tool":
-                _execute_tool_node(node_id, project, dag, node_outputs, node_trace, tool_runner)
+            results = await asyncio.gather(*tasks)
 
-            elif node.type == "agent":
-                session_to_resume = resume_sessions.get(node_id) if resume_sessions else None
-                _execute_agent_node(
-                    node_id,
-                    project,
-                    dag,
-                    node_outputs,
-                    node_trace,
-                    dry_run,
-                    session_to_resume,
-                    on_agent_message,
-                )
+            # Process results from this level
+            for result in results:
+                trace.nodes.append(result.node_trace)
 
-            elif node.type == "branch":
-                _execute_branch_node(
-                    node_id,
-                    project,
-                    dag,
-                    node_outputs,
-                    node_trace,
-                    dry_run,
-                    verbose,
-                    resume_sessions,
-                    on_agent_message,
-                    checkpoint_dir,
-                    artifact_manager,
-                    checkpoint,
-                )
+                if result.error:
+                    # First error fails the execution
+                    if not execution_error:
+                        node = dag.nodes[result.node_id]
+                        execution_error = NodeExecutionError(
+                            node_id=result.node_id,
+                            node_type=node.type,
+                            message=str(result.error),
+                            cause=result.error,
+                            inputs=result.node_trace.input,
+                        )
+                        trace.error = str(execution_error)
 
-            node_outputs[node_id] = node_trace.output
+                        # Update checkpoint with failure status
+                        if checkpoint and checkpoint_path_obj:
+                            checkpoint.status = "failed"
+                            checkpoint.updated_at = _now_iso()
+                            checkpoint.save(checkpoint_path_obj)
+                elif not result.skipped:
+                    # Store output for downstream nodes
+                    node_outputs[result.node_id] = result.output
 
-        except Exception as e:
-            # Capture error details in trace
-            node_trace.error = str(e)
-            node_trace.error_type = type(e).__name__
-            node_trace.end_time = _now_iso()
-            trace.nodes.append(node_trace)
+                    # Save checkpoint after successful node
+                    if checkpoint and checkpoint_path_obj:
+                        checkpoint.completed_nodes[result.node_id] = CheckpointNodeData(
+                            outputs=result.node_trace.output,
+                            completed_at=result.node_trace.end_time,
+                            session_id=result.node_trace.session_id,
+                            cost_usd=result.node_trace.cost_usd,
+                            num_turns=result.node_trace.num_turns,
+                        )
+                        if result.node_id in checkpoint.pending_nodes:
+                            checkpoint.pending_nodes.remove(result.node_id)
+                        if result.node_trace.cost_usd:
+                            checkpoint.total_cost_usd += result.node_trace.cost_usd
+                        checkpoint.updated_at = _now_iso()
+                        checkpoint.save(checkpoint_path_obj)
 
-            # Update checkpoint with failure status
-            if checkpoint and checkpoint_path_obj:
-                checkpoint.status = "failed"
-                checkpoint.updated_at = _now_iso()
-                checkpoint.save(checkpoint_path_obj)
-
-            # Wrap in NodeExecutionError with full context
-            execution_error = NodeExecutionError(
-                node_id=node_id,
-                node_type=node.type,
-                message=str(e),
-                cause=e,
-                inputs=node_trace.input,
-            )
-            trace.error = str(execution_error)
-
-            # Stop execution on first error (fail fast)
-            break
-
-        node_trace.end_time = _now_iso()
-        trace.nodes.append(node_trace)
-
-        # Save checkpoint after each successful node
-        if checkpoint and checkpoint_path_obj:
-            checkpoint.completed_nodes[node_id] = CheckpointNodeData(
-                outputs=node_trace.output,
-                completed_at=node_trace.end_time,
-                session_id=node_trace.session_id,
-                cost_usd=node_trace.cost_usd,
-                num_turns=node_trace.num_turns,
-            )
-            if node_id in checkpoint.pending_nodes:
-                checkpoint.pending_nodes.remove(node_id)
-            if node_trace.cost_usd:
-                checkpoint.total_cost_usd += node_trace.cost_usd
-            checkpoint.updated_at = _now_iso()
-            checkpoint.save(checkpoint_path_obj)
+    # Run the async execution
+    asyncio.run(_execute_levels())
 
     # Collect final outputs from output nodes (even partial on failure)
     final_outputs: dict[str, Any] = {}
@@ -666,6 +651,104 @@ def run(
 
     result = ExecutionResult(outputs=final_outputs, trace=trace, error=execution_error)
     return result
+
+
+async def _execute_node_async(
+    node_id: str,
+    project: Project,
+    dag: DAG,
+    node_outputs: dict[str, dict[str, Any]],
+    registry: Any,
+    tool_runner: PythonToolRunner,
+    dry_run: bool,
+    verbose: bool,
+    resume_sessions: dict[str, str] | None,
+    on_agent_message: Callable[[str, Any], None] | None,
+    checkpoint_dir: str | Path | None,
+    artifact_manager: ArtifactManager | None,
+    checkpoint: "Checkpoint | None",
+) -> _NodeExecutionResult:
+    """Execute a single node asynchronously. Returns result without raising."""
+    node = dag.nodes[node_id]
+    node_trace = NodeTrace(id=node_id, start_time=_now_iso())
+
+    try:
+        if verbose:
+            print(f"Executing node: {node_id}")
+
+        # Check if any incoming edge condition blocks execution
+        should_run = True
+        for edge in node.incoming_edges:
+            source_output = node_outputs.get(edge.from_node, {})
+            if not _should_execute(edge, source_output):
+                should_run = False
+                break
+
+        if not should_run:
+            node_trace.skipped = True
+            node_trace.end_time = _now_iso()
+            return _NodeExecutionResult(
+                node_id=node_id,
+                node_trace=node_trace,
+                skipped=True,
+            )
+
+        # Handle different node types - wrap sync operations in to_thread
+        if node.type == "input":
+            node_trace.output = node_outputs.get(node_id, {})
+
+        elif node.type == "output":
+            node_trace.input = _gather_inputs(node_id, dag, node_outputs)
+            node_trace.output = node_trace.input
+
+        elif node.type == "prompt":
+            # Run prompt execution in thread pool (I/O-bound)
+            await asyncio.to_thread(
+                _execute_prompt_node,
+                node_id, project, dag, node_outputs, node_trace, registry, dry_run
+            )
+
+        elif node.type == "tool":
+            # Run tool execution in thread pool
+            await asyncio.to_thread(
+                _execute_tool_node,
+                node_id, project, dag, node_outputs, node_trace, tool_runner
+            )
+
+        elif node.type == "agent":
+            session_to_resume = resume_sessions.get(node_id) if resume_sessions else None
+            # Agent execution already supports async via asyncio.run inside
+            await asyncio.to_thread(
+                _execute_agent_node,
+                node_id, project, dag, node_outputs, node_trace,
+                dry_run, session_to_resume, on_agent_message
+            )
+
+        elif node.type == "branch":
+            # Branch nodes run sub-workflows
+            await asyncio.to_thread(
+                _execute_branch_node,
+                node_id, project, dag, node_outputs, node_trace,
+                dry_run, verbose, resume_sessions, on_agent_message,
+                checkpoint_dir, artifact_manager, checkpoint
+            )
+
+        node_trace.end_time = _now_iso()
+        return _NodeExecutionResult(
+            node_id=node_id,
+            node_trace=node_trace,
+            output=node_trace.output,
+        )
+
+    except Exception as e:
+        node_trace.error = str(e)
+        node_trace.error_type = type(e).__name__
+        node_trace.end_time = _now_iso()
+        return _NodeExecutionResult(
+            node_id=node_id,
+            node_trace=node_trace,
+            error=e,
+        )
 
 
 def _execute_prompt_node(
