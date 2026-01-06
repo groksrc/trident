@@ -311,10 +311,10 @@ class TestBranchLoopIntegration(unittest.TestCase):
         )
         project.entrypoints = ["input"]
 
-        # Create sub-workflow directory with trident.yaml
+        # Create sub-workflow directory with agent.tml
         sub_dir = tmpdir / "increment"
         sub_dir.mkdir()
-        (sub_dir / "trident.yaml").write_text("""
+        (sub_dir / "agent.tml").write_text("""
 trident: "0.1"
 name: increment
 nodes:
@@ -463,7 +463,7 @@ def execute(counter: int) -> dict:
         # Create passthrough sub-workflow directory
         sub_dir = tmpdir / "passthrough"
         sub_dir.mkdir()
-        (sub_dir / "trident.yaml").write_text("""
+        (sub_dir / "agent.tml").write_text("""
 trident: "0.1"
 name: passthrough
 nodes:
@@ -518,10 +518,10 @@ class TestBranchLoopResumption(unittest.TestCase):
         )
         project.entrypoints = ["input"]
 
-        # Create sub-workflow directory with trident.yaml
+        # Create sub-workflow directory with agent.tml
         sub_dir = tmpdir / "sub"
         sub_dir.mkdir()
-        (sub_dir / "trident.yaml").write_text("""
+        (sub_dir / "agent.tml").write_text("""
 trident: "0.1"
 name: sub
 nodes:

@@ -316,7 +316,7 @@ class TestAgentProjectLoading(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
 
-            (root / "trident.yaml").write_text("""
+            (root / "agent.tml").write_text("""
 trident: "0.2"
 name: full-agent-test
 nodes:
@@ -488,7 +488,7 @@ class TestAgentIntegration(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
 
-            (root / "trident.yaml").write_text("""
+            (root / "agent.tml").write_text("""
 trident: "0.2"
 name: integration-test
 nodes:

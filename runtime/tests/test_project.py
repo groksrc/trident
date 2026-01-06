@@ -12,8 +12,8 @@ class TestProjectLoading(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
 
-            # Create trident.yaml
-            (root / "trident.yaml").write_text("""
+            # Create agent.tml
+            (root / "agent.tml").write_text("""
 trident: "0.1"
 name: test-project
 """)
@@ -34,7 +34,7 @@ Hello!
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
 
-            (root / "trident.yaml").write_text("""
+            (root / "agent.tml").write_text("""
 trident: "0.1"
 name: test
 edges:
@@ -64,7 +64,7 @@ Process {{data}}
     def test_missing_required_field_raises(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
-            (root / "trident.yaml").write_text("""
+            (root / "agent.tml").write_text("""
 name: no-version
 """)
             with self.assertRaises(ValidationError):
@@ -75,7 +75,7 @@ name: no-version
         with tempfile.TemporaryDirectory() as tmpdir:
             root = Path(tmpdir)
 
-            (root / "trident.yaml").write_text("""
+            (root / "agent.tml").write_text("""
 trident: "0.2"
 name: test-agents
 nodes:

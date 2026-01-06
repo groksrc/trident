@@ -22,7 +22,7 @@ You have received analysis of the Trident codebase:
 
 Create a comprehensive API_REFERENCE.md file that documents:
 
-1. **Project Configuration (trident.yaml)**
+1. **Project Configuration (agent.tml)**
    - Full schema reference
    - All node types and their options
    - Edge configuration

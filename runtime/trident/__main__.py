@@ -165,11 +165,12 @@ def cmd_project_init(args) -> int:
     # Create directory if it doesn't exist
     path.mkdir(parents=True, exist_ok=True)
 
-    # Check if already a trident project
-    manifest_path = path / "trident.yaml"
-    if manifest_path.exists():
-        print(f"Error: {path} already contains a trident.yaml", file=sys.stderr)
-        return ExitCode.VALIDATION_ERROR
+    # Check if already a trident project (any manifest format)
+    for existing in ["agent.tml", "trident.tml", "trident.yaml"]:
+        if (path / existing).exists():
+            print(f"Error: {path} already contains {existing}", file=sys.stderr)
+            return ExitCode.VALIDATION_ERROR
+    manifest_path = path / "agent.tml"
 
     # Determine project name from directory
     project_name = path.name if path.name != "." else Path.cwd().name
@@ -263,7 +264,7 @@ def process(text: str) -> dict:
 
     print(f"Created Trident project at {path}")
     print(f"  Template: {args.template}")
-    print("  Manifest: trident.yaml")
+    print("  Manifest: agent.tml")
     print("  Prompts:  prompts/example.prompt")
     if args.template == "standard":
         print("  Tools:    tools/")

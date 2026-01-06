@@ -83,10 +83,12 @@ class Project:
 
 
 def load_project(path: str | Path) -> Project:
-    """Load a Trident project from a directory.
+    """Load a Trident project from a file or directory.
 
     Args:
-        path: Path to project directory (must contain trident.yaml)
+        path: Path to manifest file (.tml/.yaml) or directory containing one.
+              If a directory, auto-discovers manifest in order:
+              agent.tml, trident.tml, trident.yaml
 
     Returns:
         Loaded and validated Project
@@ -95,18 +97,30 @@ def load_project(path: str | Path) -> Project:
         ParseError: If files cannot be parsed
         ValidationError: If project structure is invalid
     """
-    root = Path(path).resolve()
+    path = Path(path).resolve()
 
-    # Find and parse manifest
-    manifest_path = root / "trident.yaml"
-    if not manifest_path.exists():
-        raise ParseError(f"No trident.yaml found in {root}")
+    # If path is a file, load it directly
+    if path.is_file():
+        manifest_path = path
+        root = path.parent
+    # If path is a directory, auto-discover manifest
+    else:
+        root = path
+        # Search order: agent.tml (primary), trident.tml, trident.yaml (legacy)
+        manifest_path = None
+        for candidate in ["agent.tml", "trident.tml", "trident.yaml"]:
+            candidate_path = root / candidate
+            if candidate_path.exists():
+                manifest_path = candidate_path
+                break
+        if manifest_path is None:
+            raise ParseError(f"No agent.tml, trident.tml, or trident.yaml found in {root}")
 
     try:
         manifest_text = manifest_path.read_text(encoding="utf-8")
         manifest = parse_yaml_simple(manifest_text)
     except Exception as e:
-        raise ParseError(f"Cannot parse trident.yaml: {e}") from e
+        raise ParseError(f"Cannot parse {manifest_path.name}: {e}") from e
 
     # Validate required fields
     if "trident" not in manifest:
