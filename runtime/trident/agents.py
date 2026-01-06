@@ -8,20 +8,53 @@ Requires: pip install trident[agents]
 
 import json
 import os
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from typing import Any
 
 from .errors import TridentError
 from .parser import AgentNode
 from .template import render
 
+# Type alias for message callbacks
+# Callback receives: (message_type: str, content: Any) -> None
+MessageCallback = Callable[[str, Any], None]
+
 # Check for SDK availability
 try:
     import anyio
-    from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, TextBlock, query
+    from claude_agent_sdk import (
+        AssistantMessage,
+        ClaudeAgentOptions,
+        ResultMessage,
+        TextBlock,
+        ToolResultBlock,
+        ToolUseBlock,
+        query,
+    )
 
     SDK_AVAILABLE = True
 except ImportError:
     SDK_AVAILABLE = False
+
+
+@dataclass
+class AgentResult:
+    """Result from agent execution with usage metrics.
+
+    Attributes:
+        output: The parsed output from the agent
+        session_id: Session ID for resuming later
+        num_turns: Number of turns in the agent execution
+        cost_usd: Total cost in USD (None if not available)
+        tokens: Token usage dictionary with input/output counts
+    """
+
+    output: dict[str, Any]
+    session_id: str | None = None
+    num_turns: int = 0
+    cost_usd: float | None = None
+    tokens: dict[str, int] = field(default_factory=dict)
 
 
 class AgentExecutionError(TridentError):
@@ -47,16 +80,22 @@ async def execute_agent_async(
     agent_node: AgentNode,
     inputs: dict[str, Any],
     project_root: str,
-) -> dict[str, Any]:
+    resume_session: str | None = None,
+    on_message: MessageCallback | None = None,
+) -> AgentResult:
     """Execute an agent node asynchronously.
 
     Args:
         agent_node: The agent node configuration
         inputs: Input data from upstream nodes
         project_root: Project root directory
+        resume_session: Optional session ID to resume
+        on_message: Optional callback for logging/validation.
+            Called with (message_type, content) for each SDK message.
+            Types: "assistant", "tool_use", "tool_result", "result"
 
     Returns:
-        Agent output as dictionary
+        AgentResult with output and usage metrics
 
     Raises:
         AgentExecutionError: If agent execution fails
@@ -97,26 +136,65 @@ async def execute_agent_async(
 
     # Build SDK options
     options = ClaudeAgentOptions(
-        allowed_tools=agent_node.allowed_tools or None,
-        mcp_servers=mcp_servers if mcp_servers else None,
+        allowed_tools=agent_node.allowed_tools or [],
+        mcp_servers=mcp_servers if mcp_servers else {},
         cwd=cwd,
         max_turns=agent_node.max_turns,
-        permission_mode=agent_node.permission_mode,
+        permission_mode=agent_node.permission_mode,  # type: ignore[arg-type]
+        resume=resume_session,
     )
 
     # Execute agent and collect response
     # We keep the last AssistantMessage's text content (the final response)
     last_assistant_text = ""
+    result_message: ResultMessage | None = None
     try:
         async for message in query(prompt=rendered_prompt, options=options):
             if isinstance(message, AssistantMessage):
                 # Collect all text blocks from this message
-                message_text_parts = []
-                for block in message.content:
+                message_text_parts: list[str] = []
+                tool_uses: list[dict[str, Any]] = []
+                tool_results: list[dict[str, Any]] = []
+                for block in message.content:  # type: ignore[union-attr]
                     if isinstance(block, TextBlock):
-                        message_text_parts.append(block.text)
+                        message_text_parts.append(block.text)  # type: ignore[union-attr]
+                    elif isinstance(block, ToolUseBlock):
+                        tool_uses.append(
+                            {"name": block.name, "input": block.input}  # type: ignore[union-attr]
+                        )
+                    elif isinstance(block, ToolResultBlock):
+                        tool_results.append(
+                            {
+                                "tool_use_id": block.tool_use_id,  # type: ignore[union-attr]
+                                "content": block.content,  # type: ignore[union-attr]
+                            }
+                        )
+
                 if message_text_parts:
                     last_assistant_text = "\n".join(message_text_parts)
+                    if on_message:
+                        on_message("assistant", last_assistant_text)
+
+                # Call callback for tool uses
+                if on_message and tool_uses:
+                    for tool_use in tool_uses:
+                        on_message("tool_use", tool_use)
+
+                # Call callback for tool results
+                if on_message and tool_results:
+                    for tool_result in tool_results:
+                        on_message("tool_result", tool_result)
+
+            elif isinstance(message, ResultMessage):
+                result_message = message
+                if on_message:
+                    on_message(
+                        "result",
+                        {
+                            "num_turns": message.num_turns,  # type: ignore[union-attr]
+                            "cost_usd": message.total_cost_usd,  # type: ignore[union-attr]
+                        },
+                    )
     except Exception as e:
         raise AgentExecutionError(
             f"Agent '{agent_node.id}' execution failed: {e}"
@@ -145,9 +223,26 @@ async def execute_agent_async(
         if output_schema.fields:
             _validate_agent_output(parsed, output_schema.fields, agent_node.id)
 
-        return parsed
+        output = parsed
     else:
-        return {"text": response_text}
+        output = {"text": response_text}
+
+    # Build result with usage metrics
+    tokens: dict[str, int] = {}
+    if result_message and result_message.usage:
+        usage = result_message.usage
+        if "input" in usage:
+            tokens["input"] = usage["input"]
+        if "output" in usage:
+            tokens["output"] = usage["output"]
+
+    return AgentResult(
+        output=output,
+        session_id=result_message.session_id if result_message else None,
+        num_turns=result_message.num_turns if result_message else 0,
+        cost_usd=result_message.total_cost_usd if result_message else None,
+        tokens=tokens,
+    )
 
 
 def _validate_agent_output(
@@ -258,16 +353,22 @@ def execute_agent(
     agent_node: AgentNode,
     inputs: dict[str, Any],
     project_root: str,
-) -> dict[str, Any]:
+    resume_session: str | None = None,
+    on_message: MessageCallback | None = None,
+) -> AgentResult:
     """Execute an agent node synchronously (wrapper for async).
 
     Args:
         agent_node: The agent node configuration
         inputs: Input data from upstream nodes
         project_root: Project root directory
+        resume_session: Optional session ID to resume
+        on_message: Optional callback for logging/validation
 
     Returns:
-        Agent output as dictionary
+        AgentResult with output and usage metrics
     """
     check_sdk_available()
-    return anyio.run(execute_agent_async, agent_node, inputs, project_root)
+    return anyio.run(
+        execute_agent_async, agent_node, inputs, project_root, resume_session, on_message
+    )

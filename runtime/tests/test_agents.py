@@ -303,6 +303,120 @@ Analyze the code.
             )
 
 
+class TestAgentResultDataclass(unittest.TestCase):
+    """Tests for AgentResult dataclass (Phase 3)."""
+
+    def test_agent_result_fields(self):
+        """AgentResult has all expected fields."""
+        from trident.agents import AgentResult
+
+        result = AgentResult(
+            output={"status": "pass"},
+            session_id="sess-123",
+            num_turns=5,
+            cost_usd=0.0123,
+            tokens={"input": 100, "output": 50},
+        )
+
+        self.assertEqual(result.output, {"status": "pass"})
+        self.assertEqual(result.session_id, "sess-123")
+        self.assertEqual(result.num_turns, 5)
+        self.assertEqual(result.cost_usd, 0.0123)
+        self.assertEqual(result.tokens["input"], 100)
+        self.assertEqual(result.tokens["output"], 50)
+
+    def test_agent_result_defaults(self):
+        """AgentResult has sensible defaults."""
+        from trident.agents import AgentResult
+
+        result = AgentResult(output={"text": "hello"})
+
+        self.assertIsNone(result.session_id)
+        self.assertEqual(result.num_turns, 0)
+        self.assertIsNone(result.cost_usd)
+        self.assertEqual(result.tokens, {})
+
+
+class TestNodeTraceAgentFields(unittest.TestCase):
+    """Tests for NodeTrace agent-specific fields (Phase 3)."""
+
+    def test_node_trace_has_agent_fields(self):
+        """NodeTrace includes cost, session, and num_turns fields."""
+        from trident.executor import NodeTrace
+
+        trace = NodeTrace(
+            id="agent1",
+            start_time="2025-01-05T00:00:00Z",
+            cost_usd=0.05,
+            session_id="sess-abc",
+            num_turns=3,
+        )
+
+        self.assertEqual(trace.cost_usd, 0.05)
+        self.assertEqual(trace.session_id, "sess-abc")
+        self.assertEqual(trace.num_turns, 3)
+
+    def test_node_trace_agent_defaults(self):
+        """NodeTrace agent fields have sensible defaults."""
+        from trident.executor import NodeTrace
+
+        trace = NodeTrace(id="test", start_time="2025-01-05T00:00:00Z")
+
+        self.assertIsNone(trace.cost_usd)
+        self.assertIsNone(trace.session_id)
+        self.assertEqual(trace.num_turns, 0)
+
+
+class TestExecutorAgentParameters(unittest.TestCase):
+    """Tests for executor agent-related parameters (Phase 3)."""
+
+    def test_run_accepts_resume_sessions(self):
+        """run() accepts resume_sessions parameter."""
+        from trident.executor import run
+
+        # Just check it accepts the parameter without error
+        project = Project(name="test", root=Path("."))
+        project.input_nodes["input"] = InputNode(id="input")
+        project.output_nodes["output"] = OutputNode(id="output")
+        project.edges["e1"] = Edge(id="e1", from_node="input", to_node="output")
+        project.entrypoints = ["input"]
+
+        result = run(
+            project,
+            inputs={},
+            dry_run=True,
+            resume_sessions={"agent1": "sess-123"},
+        )
+
+        self.assertTrue(result.success)
+
+    def test_run_accepts_on_agent_message(self):
+        """run() accepts on_agent_message callback."""
+        from trident.executor import run
+
+        messages = []
+
+        def callback(msg_type: str, content):
+            messages.append((msg_type, content))
+
+        project = Project(name="test", root=Path("."))
+        project.input_nodes["input"] = InputNode(id="input")
+        project.output_nodes["output"] = OutputNode(id="output")
+        project.edges["e1"] = Edge(id="e1", from_node="input", to_node="output")
+        project.entrypoints = ["input"]
+
+        result = run(
+            project,
+            inputs={},
+            dry_run=True,
+            on_agent_message=callback,
+        )
+
+        self.assertTrue(result.success)
+        # No agents in this project, so no messages expected
+        self.assertEqual(messages, [])
+
+
 @unittest.skipUnless(
     os.environ.get("ANTHROPIC_API_KEY") and os.environ.get("RUN_INTEGRATION_TESTS"),
     "Integration tests require ANTHROPIC_API_KEY and RUN_INTEGRATION_TESTS=1",

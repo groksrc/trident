@@ -1,6 +1,7 @@
 """DAG execution engine."""
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any
@@ -18,11 +19,12 @@ from .tools.python import PythonToolRunner
 # Agent execution (optional - requires trident[agents])
 try:
     from .agents import SDK_AVAILABLE as AGENT_SDK_AVAILABLE
-    from .agents import execute_agent
+    from .agents import AgentResult, execute_agent
 except ImportError:
     AGENT_SDK_AVAILABLE = False
+    AgentResult = None  # type: ignore[misc,assignment]
 
-    def execute_agent(*args: Any, **kwargs: Any) -> dict[str, Any]:
+    def execute_agent(*args: Any, **kwargs: Any) -> Any:
         raise TridentError(
             "Agent execution requires Claude Agent SDK. "
             "Install with: pip install trident[agents]"
@@ -43,6 +45,10 @@ class NodeTrace:
     skipped: bool = False
     error: str | None = None
     error_type: str | None = None  # Type of exception that occurred
+    # Agent-specific metrics (SPEC-3 Phase 3)
+    cost_usd: float | None = None  # Total cost for agent execution
+    session_id: str | None = None  # Session ID for resuming
+    num_turns: int = 0  # Number of agent turns
 
     @property
     def input_tokens(self) -> int:
@@ -230,6 +236,8 @@ def run(
     inputs: dict[str, Any] | None = None,
     dry_run: bool = False,
     verbose: bool = False,
+    resume_sessions: dict[str, str] | None = None,
+    on_agent_message: "Callable[[str, Any], None] | None" = None,
 ) -> ExecutionResult:
     """Execute a Trident project.
 
@@ -239,6 +247,8 @@ def run(
         inputs: Input data for input nodes
         dry_run: If True, simulate execution without LLM calls
         verbose: If True, print node execution progress to stdout
+        resume_sessions: Optional dict mapping node_id to session_id for resuming agents
+        on_agent_message: Optional callback for agent messages (type, content)
 
     Returns:
         ExecutionResult with outputs and trace. Always returns, even on failure.
@@ -316,7 +326,17 @@ def run(
                 _execute_tool_node(node_id, project, dag, node_outputs, node_trace, tool_runner)
 
             elif node.type == "agent":
-                _execute_agent_node(node_id, project, dag, node_outputs, node_trace, dry_run)
+                session_to_resume = resume_sessions.get(node_id) if resume_sessions else None
+                _execute_agent_node(
+                    node_id,
+                    project,
+                    dag,
+                    node_outputs,
+                    node_trace,
+                    dry_run,
+                    session_to_resume,
+                    on_agent_message,
+                )
 
             node_outputs[node_id] = node_trace.output
 
@@ -465,6 +485,8 @@ def _execute_agent_node(
     node_outputs: dict[str, dict[str, Any]],
     node_trace: NodeTrace,
     dry_run: bool,
+    resume_session: str | None = None,
+    on_message: Callable[[str, Any], None] | None = None,
 ) -> None:
     """Execute an agent node via Claude Agent SDK. Raises on error."""
     agent_node = project.agents.get(node_id)
@@ -505,5 +527,13 @@ def _execute_agent_node(
         agent_node=agent_node,
         inputs=gathered,
         project_root=str(project.root),
+        resume_session=resume_session,
+        on_message=on_message,
     )
-    node_trace.output = result
+
+    # Extract output and metrics from AgentResult
+    node_trace.output = result.output
+    node_trace.tokens = result.tokens
+    node_trace.cost_usd = result.cost_usd
+    node_trace.session_id = result.session_id
+    node_trace.num_turns = result.num_turns
