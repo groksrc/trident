@@ -13,7 +13,7 @@ class TestExecutionResult(unittest.TestCase):
 
     def test_success_property(self):
         """ExecutionResult.success reflects actual success state."""
-        trace = ExecutionTrace(execution_id="test", start_time="2024-01-01T00:00:00Z")
+        trace = ExecutionTrace(run_id="test", start_time="2024-01-01T00:00:00Z")
 
         # Success case
         result = ExecutionResult(outputs={}, trace=trace, error=None)
@@ -26,7 +26,7 @@ class TestExecutionResult(unittest.TestCase):
 
     def test_summary_on_success(self):
         """ExecutionResult.summary() provides readable output on success."""
-        trace = ExecutionTrace(execution_id="test", start_time="2024-01-01T00:00:00Z")
+        trace = ExecutionTrace(run_id="test", start_time="2024-01-01T00:00:00Z")
         trace.nodes = [
             NodeTrace(
                 id="node1", start_time="2024-01-01T00:00:00Z", end_time="2024-01-01T00:00:01Z"
@@ -45,7 +45,7 @@ class TestExecutionResult(unittest.TestCase):
 
     def test_summary_on_failure(self):
         """ExecutionResult.summary() shows error details on failure."""
-        trace = ExecutionTrace(execution_id="test", start_time="2024-01-01T00:00:00Z")
+        trace = ExecutionTrace(run_id="test", start_time="2024-01-01T00:00:00Z")
         trace.nodes = [
             NodeTrace(
                 id="node1", start_time="2024-01-01T00:00:00Z", end_time="2024-01-01T00:00:01Z"
@@ -90,7 +90,7 @@ class TestExecutionTrace(unittest.TestCase):
 
     def test_failed_node_property(self):
         """ExecutionTrace.failed_node returns first failed node."""
-        trace = ExecutionTrace(execution_id="test", start_time="2024-01-01T00:00:00Z")
+        trace = ExecutionTrace(run_id="test", start_time="2024-01-01T00:00:00Z")
         trace.nodes = [
             NodeTrace(id="node1", start_time="2024-01-01T00:00:00Z"),
             NodeTrace(id="node2", start_time="2024-01-01T00:00:01Z", error="First error"),
@@ -104,7 +104,7 @@ class TestExecutionTrace(unittest.TestCase):
 
     def test_failed_node_none_on_success(self):
         """ExecutionTrace.failed_node returns None when all succeed."""
-        trace = ExecutionTrace(execution_id="test", start_time="2024-01-01T00:00:00Z")
+        trace = ExecutionTrace(run_id="test", start_time="2024-01-01T00:00:00Z")
         trace.nodes = [
             NodeTrace(id="node1", start_time="2024-01-01T00:00:00Z"),
             NodeTrace(id="node2", start_time="2024-01-01T00:00:01Z"),

@@ -5,7 +5,14 @@ from pathlib import Path
 from typing import Any
 
 from .errors import ParseError, ValidationError
-from .parser import AgentNode, MCPServerConfig, PromptNode, parse_prompt_file, parse_yaml_simple
+from .parser import (
+    AgentNode,
+    BranchNode,
+    MCPServerConfig,
+    PromptNode,
+    parse_prompt_file,
+    parse_yaml_simple,
+)
 
 
 @dataclass
@@ -71,6 +78,7 @@ class Project:
     output_nodes: dict[str, OutputNode] = field(default_factory=dict)
     tools: dict[str, ToolDef] = field(default_factory=dict)
     agents: dict[str, AgentNode] = field(default_factory=dict)  # Agent nodes (SPEC-3)
+    branches: dict[str, BranchNode] = field(default_factory=dict)  # Branch nodes (sub-workflows)
     env: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
@@ -173,6 +181,21 @@ def load_project(path: str | Path) -> Project:
                     permission_mode=node_spec.get("permission_mode", "acceptEdits"),
                     cwd=node_spec.get("cwd"),
                 )
+            elif node_type == "branch":
+                # Parse branch node configuration (sub-workflow calls)
+                workflow_path = node_spec.get("workflow", "")
+                if not workflow_path:
+                    raise ValidationError(
+                        f"Branch node '{node_id}' missing required 'workflow' path"
+                    )
+
+                project.branches[node_id] = BranchNode(
+                    id=node_id,
+                    workflow_path=workflow_path,
+                    condition=node_spec.get("condition"),
+                    loop_while=node_spec.get("loop_while"),
+                    max_iterations=node_spec.get("max_iterations", 10),
+                )
 
     # Parse edges
     if "edges" in manifest:
@@ -227,6 +250,7 @@ def load_project(path: str | Path) -> Project:
         | set(project.output_nodes.keys())
         | set(project.tools.keys())
         | set(project.agents.keys())
+        | set(project.branches.keys())
     )
 
     for node_id in all_from_nodes:

@@ -8,9 +8,10 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
+from .artifacts import ArtifactManager, RunMetadata, get_artifact_manager
 from .conditions import evaluate
 from .dag import DAG, build_dag
-from .errors import NodeExecutionError, SchemaValidationError, TridentError
+from .errors import BranchError, NodeExecutionError, SchemaValidationError, TridentError
 from .parser import PromptNode, parse_prompt_file
 from .project import Edge, Project
 from .providers import CompletionConfig, get_registry, setup_providers
@@ -71,7 +72,7 @@ class NodeTrace:
 class ExecutionTrace:
     """Full execution trace."""
 
-    execution_id: str
+    run_id: str  # Unified naming (was execution_id)
     start_time: str
     end_time: str | None = None
     nodes: list[NodeTrace] = field(default_factory=list)
@@ -89,6 +90,16 @@ class ExecutionTrace:
             if node.error:
                 return node
         return None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to JSON-serializable dict."""
+        return {
+            "run_id": self.run_id,
+            "start_time": self.start_time,
+            "end_time": self.end_time,
+            "error": self.error,
+            "nodes": [asdict(n) for n in self.nodes],
+        }
 
 
 @dataclass
@@ -162,6 +173,7 @@ class Checkpoint:
     total_cost_usd: float = 0.0
     inputs: dict[str, Any] = field(default_factory=dict)
     entrypoint: str | None = None
+    branch_states: dict[str, int] = field(default_factory=dict)  # branch_id -> iteration
 
     def save(self, checkpoint_dir: Path) -> Path:
         """Save checkpoint to disk."""
@@ -182,6 +194,7 @@ class Checkpoint:
             "total_cost_usd": self.total_cost_usd,
             "inputs": self.inputs,
             "entrypoint": self.entrypoint,
+            "branch_states": self.branch_states,
         }
 
         checkpoint_path.write_text(json.dumps(data, indent=2, default=str))
@@ -208,6 +221,7 @@ class Checkpoint:
             total_cost_usd=data.get("total_cost_usd", 0.0),
             inputs=data.get("inputs", {}),
             entrypoint=data.get("entrypoint"),
+            branch_states=data.get("branch_states", {}),
         )
 
 
@@ -315,6 +329,8 @@ def run(
     on_agent_message: "Callable[[str, Any], None] | None" = None,
     checkpoint_dir: str | Path | None = None,
     resume_from: str | Path | None = None,
+    artifact_dir: str | Path | None = None,
+    run_id: str | None = None,
 ) -> ExecutionResult:
     """Execute a Trident project.
 
@@ -326,8 +342,10 @@ def run(
         verbose: If True, print node execution progress to stdout
         resume_sessions: Optional dict mapping node_id to session_id for resuming agents
         on_agent_message: Optional callback for agent messages (type, content)
-        checkpoint_dir: Directory to save checkpoints (enables checkpointing)
+        checkpoint_dir: Directory to save checkpoints (enables checkpointing) [DEPRECATED]
         resume_from: Checkpoint path or run_id to resume from
+        artifact_dir: Directory for all artifacts (default: project_root/.trident)
+        run_id: Custom run ID (default: auto-generated UUID)
 
     Returns:
         ExecutionResult with outputs and trace. Always returns, even on failure.
@@ -390,16 +408,45 @@ def run(
                     resume_sessions[node_id] = node_data.session_id
 
     # Initialize execution state
-    execution_id = checkpoint.run_id if checkpoint else str(uuid4())
-    trace = ExecutionTrace(execution_id=execution_id, start_time=_now_iso())
+    # Determine run_id: provided > checkpoint > generated
+    effective_run_id: str
+    if run_id:
+        effective_run_id = run_id
+    elif checkpoint:
+        effective_run_id = checkpoint.run_id
+    else:
+        effective_run_id = str(uuid4())
+
+    trace = ExecutionTrace(run_id=effective_run_id, start_time=_now_iso())
     node_outputs: dict[str, dict[str, Any]] = {}
     tool_runner = PythonToolRunner(project.root)
     execution_error: NodeExecutionError | None = None
 
+    # Initialize artifact manager if artifact_dir is provided
+    artifact_manager: ArtifactManager | None = None
+    if artifact_dir:
+        artifact_path = Path(artifact_dir) if isinstance(artifact_dir, str) else artifact_dir
+        artifact_manager = get_artifact_manager(project.root, effective_run_id, artifact_path)
+        artifact_manager.register_run(project.name, entrypoint)
+
+        # Save initial metadata
+        metadata = RunMetadata(
+            run_id=effective_run_id,
+            project_name=project.name,
+            project_root=str(project.root),
+            entrypoint=entrypoint,
+            inputs=inputs or {},
+            started_at=_now_iso(),
+        )
+        artifact_manager.save_metadata(metadata)
+
+        if verbose:
+            print(f"Artifacts: {artifact_manager.run_dir}")
+
     # Create new checkpoint if checkpointing is enabled and not resuming
     if checkpoint_path_obj and not checkpoint:
         checkpoint = Checkpoint(
-            run_id=execution_id,
+            run_id=effective_run_id,
             project_name=project.name,
             started_at=_now_iso(),
             updated_at=_now_iso(),
@@ -410,7 +457,7 @@ def run(
         )
         checkpoint.save(checkpoint_path_obj)
         if verbose:
-            print(f"Checkpoint created: {execution_id}")
+            print(f"Checkpoint created: {run_id}")
 
     # Seed input nodes with provided inputs
     if inputs:
@@ -490,6 +537,22 @@ def run(
                     on_agent_message,
                 )
 
+            elif node.type == "branch":
+                _execute_branch_node(
+                    node_id,
+                    project,
+                    dag,
+                    node_outputs,
+                    node_trace,
+                    dry_run,
+                    verbose,
+                    resume_sessions,
+                    on_agent_message,
+                    checkpoint_dir,
+                    artifact_manager,
+                    checkpoint,
+                )
+
             node_outputs[node_id] = node_trace.output
 
         except Exception as e:
@@ -557,6 +620,49 @@ def run(
         checkpoint.status = "completed" if not execution_error else "failed"
         checkpoint.updated_at = _now_iso()
         checkpoint.save(checkpoint_path_obj)
+
+    # Save artifacts if artifact manager is active
+    if artifact_manager:
+        # Save checkpoint via artifact manager
+        if checkpoint:
+            artifact_manager.save_checkpoint(checkpoint)
+        elif not checkpoint_path_obj:
+            # Create checkpoint from execution state if not already tracking
+            final_checkpoint = Checkpoint(
+                run_id=effective_run_id,
+                project_name=project.name,
+                started_at=trace.start_time,
+                updated_at=trace.end_time or _now_iso(),
+                status="completed" if not execution_error else "failed",
+                inputs=inputs or {},
+                entrypoint=entrypoint,
+            )
+            for node_trace in trace.nodes:
+                if not node_trace.skipped and not node_trace.error:
+                    final_checkpoint.completed_nodes[node_trace.id] = CheckpointNodeData(
+                        outputs=node_trace.output,
+                        completed_at=node_trace.end_time or _now_iso(),
+                        session_id=node_trace.session_id,
+                        cost_usd=node_trace.cost_usd,
+                        num_turns=node_trace.num_turns,
+                    )
+            artifact_manager.save_checkpoint(final_checkpoint)
+
+        # Save trace
+        artifact_manager.save_trace(trace)
+
+        # Save outputs
+        artifact_manager.save_outputs(final_outputs)
+
+        # Update run status
+        artifact_manager.update_run_status(
+            status="completed" if not execution_error else "failed",
+            success=execution_error is None,
+            error_summary=str(execution_error) if execution_error else None,
+        )
+
+        if verbose:
+            print(f"Artifacts saved to: {artifact_manager.run_dir}")
 
     result = ExecutionResult(outputs=final_outputs, trace=trace, error=execution_error)
     return result
@@ -719,3 +825,204 @@ def _execute_agent_node(
     node_trace.cost_usd = result.cost_usd
     node_trace.session_id = result.session_id
     node_trace.num_turns = result.num_turns
+
+
+def _execute_branch_node(
+    node_id: str,
+    project: Project,
+    dag: DAG,
+    node_outputs: dict[str, dict[str, Any]],
+    node_trace: NodeTrace,
+    dry_run: bool,
+    verbose: bool,
+    resume_sessions: dict[str, str] | None = None,
+    on_agent_message: Callable[[str, Any], None] | None = None,
+    checkpoint_dir: str | Path | None = None,
+    artifact_manager: ArtifactManager | None = None,
+    checkpoint: "Checkpoint | None" = None,
+) -> None:
+    """Execute a branch node (sub-workflow call with optional looping).
+
+    Branch nodes execute another workflow with the gathered inputs.
+    If `loop_while` is specified, the workflow repeats until the condition
+    is false or `max_iterations` is reached.
+
+    Loop behavior:
+    - Each iteration receives the previous iteration's outputs as inputs
+    - Iteration state is saved to artifacts if artifact_manager is provided
+    - The loop condition is evaluated after each iteration
+    - Loop terminates when condition is false or max_iterations reached
+    """
+    from .project import load_project
+
+    branch_node = project.branches.get(node_id)
+    if not branch_node:
+        raise TridentError(f"Branch definition not found: {node_id}")
+
+    # Gather inputs from upstream nodes
+    gathered = _gather_inputs(node_id, dag, node_outputs)
+    node_trace.input = gathered
+
+    # Evaluate pre-condition (skip if false)
+    if branch_node.condition:
+        context = {"output": gathered, **gathered}
+        try:
+            should_execute = evaluate(branch_node.condition, context)
+        except Exception as e:
+            raise BranchError(
+                f"Failed to evaluate branch condition: {branch_node.condition}",
+                cause=e,
+            ) from e
+
+        if not should_execute:
+            node_trace.skipped = True
+            node_trace.output = gathered  # Pass through inputs as outputs
+            if verbose:
+                print(f"  Branch {node_id} skipped (condition false)")
+            return
+
+    if dry_run:
+        # Dry run: skip actual execution, pass through inputs
+        node_trace.output = {"dry_run": True, **gathered}
+        return
+
+    # Resolve workflow path
+    if branch_node.workflow_path == "self":
+        # Self-recursion: re-execute the current project
+        sub_project = project
+    else:
+        # External workflow: load from path
+        workflow_path = project.root / branch_node.workflow_path
+        if not workflow_path.exists():
+            raise BranchError(f"Sub-workflow not found: {workflow_path}")
+        sub_project = load_project(workflow_path)
+
+    # Determine starting iteration (for resumption)
+    # branch_states stores the last COMPLETED iteration, so we start at +1
+    start_iteration = 0
+    if checkpoint and node_id in checkpoint.branch_states:
+        start_iteration = checkpoint.branch_states[node_id] + 1
+        if verbose:
+            print(f"  Resuming branch {node_id} from iteration {start_iteration}")
+
+    # Execute with optional looping
+    current_inputs = gathered
+    iteration = start_iteration
+    final_outputs: dict[str, Any] = {}
+
+    while True:
+        if verbose:
+            if branch_node.loop_while:
+                print(f"  [{node_id}] Iteration {iteration + 1}/{branch_node.max_iterations}")
+            else:
+                print(f"  Executing sub-workflow: {branch_node.workflow_path}")
+
+        iteration_start = _now_iso()
+
+        # Determine sub-workflow artifact dir (nested under branch iteration)
+        sub_artifact_dir = None
+        if artifact_manager:
+            sub_artifact_dir = artifact_manager.branches_dir(node_id) / f"iter_{iteration}"
+
+        # Execute sub-workflow
+        sub_result = run(
+            project=sub_project,
+            inputs=current_inputs,
+            dry_run=dry_run,
+            verbose=verbose,
+            resume_sessions=resume_sessions,
+            on_agent_message=on_agent_message,
+            checkpoint_dir=checkpoint_dir,
+            artifact_dir=sub_artifact_dir,
+        )
+
+        iteration_end = _now_iso()
+
+        # Save iteration state if artifact manager is available
+        if artifact_manager:
+            from .artifacts import BranchIterationState
+
+            iteration_state = BranchIterationState(
+                branch_id=node_id,
+                iteration=iteration,
+                inputs=current_inputs,
+                outputs=sub_result.outputs,
+                started_at=iteration_start,
+                ended_at=iteration_end,
+                success=sub_result.success,
+                error=str(sub_result.error) if sub_result.error else None,
+            )
+            artifact_manager.save_branch_iteration(node_id, iteration_state)
+
+        # Update checkpoint with current iteration and save for crash recovery
+        if checkpoint:
+            checkpoint.branch_states[node_id] = iteration
+            checkpoint.updated_at = _now_iso()
+            # Save checkpoint if checkpoint_dir is available
+            if checkpoint_dir:
+                checkpoint_path = Path(checkpoint_dir) if isinstance(checkpoint_dir, str) else checkpoint_dir
+                checkpoint.save(checkpoint_path)
+
+        if not sub_result.success:
+            raise BranchError(
+                f"Sub-workflow failed at iteration {iteration + 1}: {sub_result.error}",
+                cause=sub_result.error,
+                iteration=iteration,
+                max_iterations=branch_node.max_iterations,
+            )
+
+        # Flatten outputs from sub-workflow
+        # sub_result.outputs has shape {"output_node_id": {...}}
+        # For loops, we need flat access to values
+        raw_outputs = sub_result.outputs
+        if len(raw_outputs) == 1:
+            # Single output node - use its contents directly
+            final_outputs = next(iter(raw_outputs.values()))
+            if not isinstance(final_outputs, dict):
+                final_outputs = raw_outputs
+        else:
+            # Multiple output nodes or complex structure - flatten all values
+            final_outputs = {}
+            for node_outputs in raw_outputs.values():
+                if isinstance(node_outputs, dict):
+                    final_outputs.update(node_outputs)
+                else:
+                    final_outputs = raw_outputs
+                    break
+
+        # If no loop_while, we're done after one iteration
+        if not branch_node.loop_while:
+            break
+
+        # Evaluate loop condition
+        context = {"output": final_outputs, **final_outputs}
+        try:
+            should_continue = evaluate(branch_node.loop_while, context)
+        except Exception as e:
+            raise BranchError(
+                f"Failed to evaluate loop condition: {branch_node.loop_while}",
+                cause=e,
+                iteration=iteration,
+                max_iterations=branch_node.max_iterations,
+            ) from e
+
+        if not should_continue:
+            if verbose:
+                print(f"  [{node_id}] Loop condition false, stopping after {iteration + 1} iterations")
+            break
+
+        iteration += 1
+
+        # Check max iterations
+        if iteration >= branch_node.max_iterations:
+            raise BranchError(
+                f"Max iterations ({branch_node.max_iterations}) reached",
+                iteration=iteration,
+                max_iterations=branch_node.max_iterations,
+            )
+
+        # Use outputs as inputs for next iteration
+        current_inputs = final_outputs
+
+    # Output is the final iteration's outputs
+    node_trace.output = final_outputs

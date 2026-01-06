@@ -5,7 +5,15 @@ import json
 import sys
 from pathlib import Path
 
-from . import ExitCode, TridentError, __version__, load_project, run
+from . import (
+    ExitCode,
+    RunManifest,
+    TridentError,
+    __version__,
+    find_latest_run,
+    load_project,
+    run,
+)
 
 
 def main() -> int:
@@ -56,6 +64,24 @@ def main() -> int:
     run_parser.add_argument(
         "--verbose", "-v", action="store_true", help="Show node execution progress"
     )
+    # Artifact options
+    run_parser.add_argument(
+        "--no-artifacts",
+        action="store_true",
+        help="Disable artifact persistence (default: artifacts saved to .trident/)",
+    )
+    run_parser.add_argument(
+        "--artifact-dir",
+        help="Custom directory for artifacts (default: .trident/)",
+    )
+    run_parser.add_argument(
+        "--run-id",
+        help="Custom run ID (default: auto-generated UUID)",
+    )
+    run_parser.add_argument(
+        "--resume",
+        help='Resume from a previous run. Use run ID or "latest"',
+    )
 
     # project validate
     validate_parser = project_subparsers.add_parser("validate", help="Validate a Trident project")
@@ -66,6 +92,13 @@ def main() -> int:
     # project graph
     graph_parser = project_subparsers.add_parser("graph", help="Visualize the project DAG")
     graph_parser.add_argument("path", nargs="?", default=".", help="Path to project (default: .)")
+
+    # project runs
+    runs_parser = project_subparsers.add_parser("runs", help="List past runs")
+    runs_parser.add_argument("path", nargs="?", default=".", help="Path to project (default: .)")
+    runs_parser.add_argument(
+        "--limit", "-n", type=int, default=10, help="Number of runs to show (default: 10)"
+    )
 
     args = parser.parse_args()
 
@@ -88,6 +121,8 @@ def main() -> int:
                 return cmd_project_validate(args)
             elif args.subcommand == "graph":
                 return cmd_project_graph(args)
+            elif args.subcommand == "runs":
+                return cmd_project_runs(args)
     except TridentError as e:
         print(f"Error: {e}", file=sys.stderr)
         return e.exit_code
@@ -248,6 +283,49 @@ def cmd_project_graph(args) -> int:
     return 0
 
 
+def cmd_project_runs(args) -> int:
+    """List past runs for a project."""
+    project_path = Path(args.path).resolve()
+    manifest_path = project_path / ".trident" / "runs" / "manifest.json"
+
+    manifest = RunManifest.load(manifest_path)
+
+    if not manifest.runs:
+        print("No runs found.")
+        print(f"  Run a project with: trident project run {args.path}")
+        return 0
+
+    # Show most recent runs (reversed, limited)
+    runs_to_show = list(reversed(manifest.runs))[:args.limit]
+
+    print(f"Recent runs ({len(runs_to_show)} of {len(manifest.runs)}):")
+    print()
+
+    for run_entry in runs_to_show:
+        status_icon = {
+            "completed": "✓",
+            "failed": "✗",
+            "running": "…",
+            "interrupted": "⊘",
+        }.get(run_entry.status, "?")
+
+        success_str = ""
+        if run_entry.success is not None:
+            success_str = " (success)" if run_entry.success else " (failed)"
+
+        print(f"  [{status_icon}] {run_entry.run_id[:8]}...")
+        print(f"      Status: {run_entry.status}{success_str}")
+        print(f"      Started: {run_entry.started_at}")
+        if run_entry.ended_at:
+            print(f"      Ended: {run_entry.ended_at}")
+        if run_entry.error_summary:
+            print(f"      Error: {run_entry.error_summary[:60]}...")
+        print()
+
+    print(f"Artifacts directory: {project_path / '.trident' / 'runs'}")
+    return 0
+
+
 def cmd_project_run(args) -> int:
     """Execute a pipeline."""
     project = load_project(args.path)
@@ -260,6 +338,27 @@ def cmd_project_run(args) -> int:
         with open(args.input_file) as f:
             inputs = json.load(f)
 
+    # Determine artifact directory (default: .trident/ unless --no-artifacts)
+    artifact_dir = None
+    if not args.no_artifacts:
+        if args.artifact_dir:
+            artifact_dir = Path(args.artifact_dir)
+        else:
+            artifact_dir = project.root / ".trident"
+
+    # Handle resume
+    resume_from = None
+    if args.resume:
+        if args.resume == "latest":
+            resume_from = find_latest_run(project.root)
+            if not resume_from:
+                print("Error: No previous runs found to resume", file=sys.stderr)
+                return ExitCode.VALIDATION_ERROR
+            if args.verbose:
+                print(f"Resuming from latest run: {resume_from}")
+        else:
+            resume_from = args.resume
+
     # Execute
     result = run(
         project,
@@ -267,6 +366,9 @@ def cmd_project_run(args) -> int:
         inputs=inputs,
         dry_run=args.dry_run,
         verbose=args.verbose,
+        artifact_dir=artifact_dir,
+        run_id=args.run_id,
+        resume_from=resume_from,
     )
 
     # Output
@@ -284,7 +386,7 @@ def cmd_project_run(args) -> int:
             }
         if args.trace:
             output["trace"] = {
-                "execution_id": result.trace.execution_id,
+                "run_id": result.trace.run_id,
                 "start_time": result.trace.start_time,
                 "end_time": result.trace.end_time,
                 "nodes": [

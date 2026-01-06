@@ -3,8 +3,8 @@
 import unittest
 from pathlib import Path
 
-from trident.dag import DAGError, build_dag
-from trident.parser import PromptNode
+from trident.dag import DAGError, _get_node_symbol, build_dag, visualize_dag
+from trident.parser import BranchNode, PromptNode
 from trident.project import Edge, InputNode, OutputNode, Project
 
 
@@ -86,6 +86,57 @@ class TestDAG(unittest.TestCase):
 
         with self.assertRaises(DAGError):
             build_dag(project)
+
+    def test_branch_node_in_dag(self):
+        """Test that branch nodes are properly included in the DAG."""
+        project = self._make_project(
+            [("input", "branch1"), ("branch1", "output")],
+            prompts=[],
+        )
+        # Add branch node
+        project.branches["branch1"] = BranchNode(
+            id="branch1",
+            workflow_path="./sub_workflow.yaml",
+        )
+        # Remove from input/output nodes since it's a branch
+        project.input_nodes.pop("branch1", None)
+        project.output_nodes.pop("branch1", None)
+
+        dag = build_dag(project)
+
+        self.assertIn("branch1", dag.nodes)
+        self.assertEqual(dag.nodes["branch1"].type, "branch")
+        self.assertEqual(dag.execution_order, ["input", "branch1", "output"])
+
+    def test_branch_node_symbol(self):
+        """Test that branch nodes get the [B] symbol."""
+        self.assertEqual(_get_node_symbol("branch"), "[B]")
+        self.assertEqual(_get_node_symbol("input"), "[I]")
+        self.assertEqual(_get_node_symbol("output"), "[O]")
+        self.assertEqual(_get_node_symbol("prompt"), "[P]")
+        self.assertEqual(_get_node_symbol("agent"), "[A]")
+        self.assertEqual(_get_node_symbol("tool"), "[T]")
+        self.assertEqual(_get_node_symbol("unknown"), "[?]")
+
+    def test_visualize_dag_with_branch(self):
+        """Test DAG visualization includes branch nodes."""
+        project = self._make_project(
+            [("input", "branch1"), ("branch1", "output")],
+            prompts=[],
+        )
+        project.branches["branch1"] = BranchNode(
+            id="branch1",
+            workflow_path="./sub_workflow.yaml",
+        )
+        project.input_nodes.pop("branch1", None)
+        project.output_nodes.pop("branch1", None)
+
+        dag = build_dag(project)
+        viz = visualize_dag(dag)
+
+        self.assertIn("[B] branch1", viz)
+        self.assertIn("[I] Input", viz)  # Legend
+        self.assertIn("[B] Branch", viz)  # Legend
 
 
 if __name__ == "__main__":

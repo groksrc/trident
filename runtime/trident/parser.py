@@ -71,6 +71,36 @@ class AgentNode:
     prompt_node: PromptNode | None = None
 
 
+@dataclass
+class BranchNode:
+    """Branch node definition - calls sub-workflows with optional looping.
+
+    A branch node can:
+    - Call another workflow file (workflow: ./refinement.yaml)
+    - Call itself recursively (workflow: self)
+    - Run conditionally (condition: "quality_score < 8")
+    - Loop while a condition is true (loop_while: "needs_refinement")
+    - Have a max iteration limit (max_iterations: 5)
+
+    Condition syntax uses field access (not template syntax):
+    - Simple fields: "ready", "value > 10"
+    - Nested fields: "output.score < 8"
+
+    Example YAML:
+        - id: refine_loop
+          type: branch
+          workflow: ./single_pass.yaml
+          loop_while: "quality_score < 8"
+          max_iterations: 5
+    """
+
+    id: str
+    workflow_path: str  # Path to workflow file, or "self" for recursion
+    condition: str | None = None  # Pre-execution condition (skip if false)
+    loop_while: str | None = None  # Loop condition (evaluated after each iteration)
+    max_iterations: int = 10  # Safety limit to prevent infinite loops
+
+
 def _parse_value(value: str) -> Any:
     """Parse a YAML value into Python type."""
     value = value.strip()

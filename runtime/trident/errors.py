@@ -108,6 +108,38 @@ class NodeExecutionError(TridentError):
         return "\n".join(parts)
 
 
+class BranchError(TridentError):
+    """Error executing a branch node (sub-workflow call).
+
+    This error is raised when a branch node fails, either due to:
+    - Sub-workflow execution failure
+    - Max iterations exceeded
+    - Condition evaluation error
+    """
+
+    exit_code = ExitCode.RUNTIME_ERROR
+
+    def __init__(
+        self,
+        message: str,
+        iteration: int = 0,
+        max_iterations: int = 0,
+        cause: Exception | None = None,
+    ):
+        super().__init__(message)
+        self.iteration = iteration
+        self.max_iterations = max_iterations
+        self.cause = cause
+
+    def __str__(self) -> str:
+        parts = [self.args[0]]
+        if self.iteration > 0:
+            parts.append(f"  Iteration: {self.iteration}/{self.max_iterations}")
+        if self.cause:
+            parts.append(f"  Caused by: {type(self.cause).__name__}: {self.cause}")
+        return "\n".join(parts)
+
+
 def _truncate(value: Any, max_len: int = 100) -> Any:
     """Truncate long values for error display."""
     if isinstance(value, str) and len(value) > max_len:
