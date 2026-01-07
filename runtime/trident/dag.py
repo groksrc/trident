@@ -1,9 +1,28 @@
 """DAG construction and validation."""
 
 from dataclasses import dataclass, field
+from typing import Any
 
 from .errors import DAGError
 from .project import Edge, Project
+
+
+@dataclass
+class ValidationWarning:
+    """A validation warning (non-fatal issue)."""
+
+    message: str
+    edge_id: str | None = None
+    node_id: str | None = None
+
+
+@dataclass
+class ValidationResult:
+    """Result of DAG validation."""
+
+    valid: bool
+    errors: list[str] = field(default_factory=list)
+    warnings: list[ValidationWarning] = field(default_factory=list)
 
 
 @dataclass
@@ -25,11 +44,179 @@ class DAG:
     execution_levels: list[list[str]]  # Nodes grouped by level (parallel within level)
 
 
-def build_dag(project: Project) -> DAG:
+def get_node_output_fields(project: Project, node_id: str, node_type: str) -> set[str]:
+    """Get the fields a node outputs.
+
+    This defines the 'output contract' for each node type, enabling
+    validation of edge mappings before execution.
+
+    Args:
+        project: The loaded project
+        node_id: ID of the node
+        node_type: Type of the node (input, prompt, tool, agent, branch, output)
+
+    Returns:
+        Set of field names that can be used in edge mapping source expressions
+    """
+    if node_type == "input":
+        if node_id in project.input_nodes:
+            return set(project.input_nodes[node_id].schema.keys())
+        return set()
+
+    elif node_type == "prompt":
+        if node_id in project.prompts:
+            prompt = project.prompts[node_id]
+            # All prompts output 'text' - for JSON format, text contains the parsed object
+            # For JSON prompts, the schema fields are also available at top level
+            if prompt.output.format == "json" and prompt.output.fields:
+                return {"text"} | set(prompt.output.fields.keys())
+            return {"text"}
+        return {"text"}
+
+    elif node_type == "tool":
+        # Tools return either:
+        # - A dict: fields available directly
+        # - Non-dict: wrapped as {"output": value}
+        # We can't know at validation time, so accept both patterns
+        return {"output"}  # Conservative default
+
+    elif node_type == "agent":
+        # Agents output 'text' with the final response
+        # May also have structured output depending on prompt
+        if node_id in project.agents:
+            agent = project.agents[node_id]
+            # Check if agent's prompt has structured output
+            prompt_path = agent.prompt_path
+            # Extract prompt ID from path (e.g., "prompts/foo.prompt" -> "foo")
+            prompt_id = prompt_path.replace("prompts/", "").replace(".prompt", "")
+            if prompt_id in project.prompts:
+                prompt = project.prompts[prompt_id]
+                if prompt.output.format == "json" and prompt.output.fields:
+                    return {"text"} | set(prompt.output.fields.keys())
+        return {"text"}
+
+    elif node_type == "branch":
+        # Branch nodes pass through their sub-workflow output
+        return {"output", "text"}
+
+    elif node_type == "output":
+        # Output nodes don't have downstream edges
+        return set()
+
+    return set()
+
+
+def get_node_input_fields(project: Project, node_id: str, node_type: str) -> set[str]:
+    """Get the fields a node expects as input.
+
+    Args:
+        project: The loaded project
+        node_id: ID of the node
+        node_type: Type of the node
+
+    Returns:
+        Set of field names expected by the node, or empty set if any field is accepted
+    """
+    if node_type == "prompt":
+        if node_id in project.prompts:
+            prompt = project.prompts[node_id]
+            return set(prompt.inputs.keys())
+        return set()
+
+    elif node_type == "agent":
+        if node_id in project.agents:
+            agent = project.agents[node_id]
+            # Check agent's prompt for input schema
+            prompt_path = agent.prompt_path
+            prompt_id = prompt_path.replace("prompts/", "").replace(".prompt", "")
+            if prompt_id in project.prompts:
+                prompt = project.prompts[prompt_id]
+                return set(prompt.inputs.keys())
+        return set()
+
+    elif node_type == "tool":
+        # Tool inputs depend on function signature - can't validate statically
+        return set()
+
+    elif node_type == "output":
+        # Output nodes accept anything
+        return set()
+
+    elif node_type == "branch":
+        # Branch inputs depend on sub-workflow
+        return set()
+
+    return set()
+
+
+def validate_edge_mappings(
+    project: Project, dag: "DAG", strict: bool = False
+) -> ValidationResult:
+    """Validate edge mappings against node input/output contracts.
+
+    Args:
+        project: The loaded project
+        dag: The constructed DAG
+        strict: If True, treat warnings as errors
+
+    Returns:
+        ValidationResult with any errors and warnings
+    """
+    result = ValidationResult(valid=True)
+
+    for edge in project.edges.values():
+        source_node = dag.nodes.get(edge.from_node)
+        target_node = dag.nodes.get(edge.to_node)
+
+        if not source_node or not target_node:
+            # build_dag already validates node existence
+            continue
+
+        source_fields = get_node_output_fields(project, edge.from_node, source_node.type)
+        target_fields = get_node_input_fields(project, edge.to_node, target_node.type)
+
+        for mapping in edge.mappings:
+            # Validate source field
+            base_field = mapping.source_expr.split(".")[0]
+            if source_fields and base_field not in source_fields:
+                warning = ValidationWarning(
+                    message=(
+                        f"Source field '{mapping.source_expr}' may not exist in "
+                        f"'{edge.from_node}' ({source_node.type}) output. "
+                        f"Available fields: {sorted(source_fields)}"
+                    ),
+                    edge_id=edge.id,
+                    node_id=edge.from_node,
+                )
+                result.warnings.append(warning)
+
+            # Validate target field (only if target has defined inputs)
+            if target_fields and mapping.target_var not in target_fields:
+                warning = ValidationWarning(
+                    message=(
+                        f"Target field '{mapping.target_var}' not expected by "
+                        f"'{edge.to_node}' ({target_node.type}). "
+                        f"Expected inputs: {sorted(target_fields)}"
+                    ),
+                    edge_id=edge.id,
+                    node_id=edge.to_node,
+                )
+                result.warnings.append(warning)
+
+    # In strict mode, warnings become errors
+    if strict and result.warnings:
+        result.valid = False
+        result.errors = [w.message for w in result.warnings]
+
+    return result
+
+
+def build_dag(project: Project, validate_mappings_flag: bool = False) -> DAG:
     """Build and validate DAG from project.
 
     Args:
         project: Loaded project
+        validate_mappings_flag: If True, validate edge mappings and print warnings
 
     Returns:
         Validated DAG with topological execution order
@@ -102,7 +289,19 @@ def build_dag(project: Project) -> DAG:
         remaining = set(nodes.keys()) - set(execution_order)
         raise DAGError(f"Cycle detected in DAG. Nodes involved: {remaining}")
 
-    return DAG(nodes=nodes, execution_order=execution_order, execution_levels=execution_levels)
+    dag = DAG(nodes=nodes, execution_order=execution_order, execution_levels=execution_levels)
+
+    # Optionally validate edge mappings
+    if validate_mappings_flag:
+        validation = validate_edge_mappings(project, dag)
+        if validation.warnings:
+            import sys
+            print("Edge mapping warnings:", file=sys.stderr)
+            for warning in validation.warnings:
+                print(f"  ⚠ {warning.message}", file=sys.stderr)
+            print(file=sys.stderr)
+
+    return dag
 
 
 def get_upstream_nodes(dag: DAG, node_id: str) -> list[str]:

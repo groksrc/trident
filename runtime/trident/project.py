@@ -163,9 +163,21 @@ def load_project(path: str | Path) -> Project:
                     format=node_spec.get("format", "json"),
                 )
             elif node_type == "tool":
-                tool_id = node_spec.get("tool", node_id)
-                # Tool definition comes from tools section
-                pass
+                # Tools must be defined in the tools: section, not nodes:
+                raise ValidationError(
+                    f"Node '{node_id}' has type 'tool', but tools must be defined "
+                    f"in the 'tools:' section at the bottom of the manifest, not in 'nodes:'.\n"
+                    f"\n"
+                    f"Move this definition to the tools section:\n"
+                    f"\n"
+                    f"  tools:\n"
+                    f"    {node_id}:\n"
+                    f"      type: python\n"
+                    f"      module: <module_name>\n"
+                    f"      function: <function_name>\n"
+                    f"\n"
+                    f"Then reference it in edges by using '{node_id}' as the from/to node."
+                )
             elif node_type == "agent":
                 # Parse agent node configuration (SPEC-3)
                 mcp_servers: dict[str, MCPServerConfig] = {}

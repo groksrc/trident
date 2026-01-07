@@ -88,6 +88,11 @@ def main() -> int:
     validate_parser.add_argument(
         "path", nargs="?", default=".", help="Path to project (default: .)"
     )
+    validate_parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Treat warnings as errors (e.g., edge mapping mismatches)",
+    )
 
     # project graph
     graph_parser = project_subparsers.add_parser("graph", help="Visualize the project DAG")
@@ -280,16 +285,44 @@ def process(text: str) -> dict:
 
 def cmd_project_validate(args) -> int:
     """Validate a project."""
-    from .dag import build_dag
+    from .dag import build_dag, validate_edge_mappings
 
     project = load_project(args.path)
     dag = build_dag(project)
 
-    print(f"Valid: {project.name}")
+    # Validate edge mappings
+    validation = validate_edge_mappings(project, dag, strict=args.strict)
+
+    print(f"Project: {project.name}")
     print(f"  Prompts: {len(project.prompts)}")
+    print(f"  Tools: {len(project.tools)}")
+    print(f"  Agents: {len(project.agents)}")
+    print(f"  Branches: {len(project.branches)}")
     print(f"  Edges: {len(project.edges)}")
     print(f"  Nodes in execution order: {len(dag.execution_order)}")
-    return 0
+    print()
+
+    # Show warnings
+    if validation.warnings:
+        print("Warnings:")
+        for warning in validation.warnings:
+            edge_info = f" (edge: {warning.edge_id})" if warning.edge_id else ""
+            print(f"  ⚠ {warning.message}{edge_info}")
+        print()
+
+    # In strict mode, warnings are errors
+    if args.strict and validation.warnings:
+        print(f"FAILED: {len(validation.warnings)} warning(s) in strict mode", file=sys.stderr)
+        return ExitCode.VALIDATION_ERROR
+
+    if validation.valid:
+        print("✓ Validation passed")
+        return 0
+    else:
+        print(f"✗ Validation failed: {len(validation.errors)} error(s)", file=sys.stderr)
+        for error in validation.errors:
+            print(f"  ✗ {error}", file=sys.stderr)
+        return ExitCode.VALIDATION_ERROR
 
 
 def cmd_project_graph(args) -> int:

@@ -10,6 +10,11 @@ from .artifacts import (
     find_latest_run,
     get_artifact_manager,
 )
+from .dag import (
+    ValidationResult,
+    ValidationWarning,
+    validate_edge_mappings,
+)
 from .errors import (
     ConditionError,
     DAGError,
@@ -54,6 +59,10 @@ __all__ = [
     "RunMetadata",
     "find_latest_run",
     "get_artifact_manager",
+    # Validation
+    "ValidationResult",
+    "ValidationWarning",
+    "validate_edge_mappings",
     # Errors
     "TridentError",
     "ParseError",

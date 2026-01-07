@@ -199,6 +199,62 @@ python -m trident project run [path] [options]
 python -m trident project graph --format mermaid --open  # Open in browser
 ```
 
+## Validation
+
+Trident validates your workflow at multiple levels:
+
+### Basic Validation
+```bash
+python -m trident project validate ./my-project
+```
+
+Checks:
+- Manifest syntax and required fields
+- DAG structure (no cycles, valid node references)
+- Edge mapping warnings (source/target field mismatches)
+
+### Strict Mode
+```bash
+python -m trident project validate ./my-project --strict
+```
+
+In strict mode, warnings become errors. Use this in CI/CD to catch:
+- Edge mappings that reference non-existent output fields
+- Edge mappings that target unexpected input fields
+
+### Example Output
+```
+Project: my-project
+  Prompts: 2
+  Tools: 1
+  Edges: 3
+  Nodes in execution order: 4
+
+Warnings:
+  ⚠ Target field 'wrong_name' not expected by 'process' (prompt).
+    Expected inputs: ['content'] (edge: e1)
+
+✓ Validation passed
+```
+
+### Common Validation Errors
+
+**Tools must be in `tools:` section:**
+```yaml
+# ❌ Wrong - tool in nodes section
+nodes:
+  my_tool:
+    type: tool
+    module: mymodule
+
+# ✅ Correct - tool in tools section
+tools:
+  my_tool:
+    type: python
+    module: mymodule
+    function: myfunction
+```
+
 ## Python API
 
 ```python
@@ -240,6 +296,7 @@ See the `examples/` directory:
 
 - `support-triage/` - Customer support ticket classification
 - `dev-team/` - Multi-agent development workflow
+- `browser-screenshot/` - Browser automation with Chrome DevTools MCP
 - `todomvc-python/` - TodoMVC app generation
 - `todomvc-vue/` - Vue.js TodoMVC generation
 
