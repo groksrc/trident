@@ -19,18 +19,28 @@ from .providers import CompletionConfig, get_registry, setup_providers
 from .template import get_nested, render
 from .tools.python import PythonToolRunner
 
-# Agent execution (optional - requires trident[agents])
+# Agent execution (optional - requires trident[agents-*])
 try:
-    from .agents import SDK_AVAILABLE as AGENT_SDK_AVAILABLE
-    from .agents import AgentResult, execute_agent
+    from .agents import AgentResult, check_sdk_available, execute_agent
+    from .agent_providers import get_registry as get_agent_registry
+
+    # Check if any agent provider is available
+    _agent_registry = get_agent_registry()
+    AGENT_SDK_AVAILABLE = len(_agent_registry.list_available()) > 0
 except ImportError:
     AGENT_SDK_AVAILABLE = False
     AgentResult = None  # type: ignore[misc,assignment]
 
     def execute_agent(*args: Any, **kwargs: Any) -> Any:
         raise TridentError(
-            "Agent execution requires Claude Agent SDK. "
-            "Install with: pip install trident[agents]"
+            "Agent execution requires an agent SDK. "
+            "Install with: pip install trident[agents-claude] (or agents-openai, agents-gemini)"
+        )
+
+    def check_sdk_available() -> None:
+        raise TridentError(
+            "No agent SDK installed. "
+            "Install with: pip install trident[agents-claude]"
         )
 
 

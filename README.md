@@ -10,8 +10,16 @@ Trident lets you define multi-step AI workflows as directed acyclic graphs (DAGs
 cd runtime
 uv pip install -e .
 
-# With Claude Agent SDK support
+# With Claude Agent SDK support (default)
 uv pip install -e ".[agents]"
+
+# With specific provider SDKs
+uv pip install -e ".[agents-claude]"   # Claude Agent SDK
+uv pip install -e ".[agents-openai]"   # OpenAI Agents
+uv pip install -e ".[agents-gemini]"   # Google Gemini
+
+# All agent providers
+uv pip install -e ".[agents-all]"
 ```
 
 ## Quick Start
@@ -128,23 +136,44 @@ Return JSON with a "result" field.
 
 ### Agent Nodes
 
-Agent nodes use Claude Agent SDK for autonomous tool use:
+Agent nodes execute autonomous multi-turn tasks with tool access. Trident supports multiple agent providers:
+
+| Provider | SDK | MCP Support |
+|----------|-----|-------------|
+| `claude` | Claude Agent SDK (default) | Yes |
+| `openai` | OpenAI Agents API | No |
+| `gemini` | Google Gemini | No |
 
 ```yaml
 nodes:
   analyzer:
     type: agent
+    provider: claude             # Optional, default is claude
+    model: claude-sonnet-4-20250514  # Optional model override
     prompt: prompts/analyzer.prompt
     allowed_tools:
       - Read
       - Write
       - Bash
-    mcp_servers:
+    mcp_servers:                 # Claude-specific
       github:
         command: npx
         args: ["@modelcontextprotocol/server-github"]
     max_turns: 50
-    permission_mode: acceptEdits
+    provider_options:            # Provider-specific settings
+      permission_mode: acceptEdits
+
+  # OpenAI example
+  gpt_agent:
+    type: agent
+    provider: openai
+    model: gpt-4o
+    prompt: prompts/gpt_agent.prompt
+    allowed_tools:
+      - Read
+      - Glob
+    provider_options:
+      temperature: 0.7
 ```
 
 ### Branch Nodes

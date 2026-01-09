@@ -179,7 +179,7 @@ def load_project(path: str | Path) -> Project:
                     f"Then reference it in edges by using '{node_id}' as the from/to node."
                 )
             elif node_type == "agent":
-                # Parse agent node configuration (SPEC-3)
+                # Parse agent node configuration
                 mcp_servers: dict[str, MCPServerConfig] = {}
                 if "mcp_servers" in node_spec:
                     for server_name, server_spec in node_spec["mcp_servers"].items():
@@ -198,14 +198,31 @@ def load_project(path: str | Path) -> Project:
                 else:
                     allowed_tools = []
 
+                # Parse provider_options (provider-specific config)
+                provider_options: dict[str, Any] = {}
+                if "provider_options" in node_spec:
+                    raw_opts = node_spec["provider_options"]
+                    if isinstance(raw_opts, dict):
+                        provider_options = raw_opts
+
+                # Handle legacy permission_mode at top level (deprecated)
+                # Move to provider_options if not already there
+                permission_mode = node_spec.get("permission_mode", "acceptEdits")
+                if "permission_mode" in node_spec and "permission_mode" not in provider_options:
+                    # TODO: Add deprecation warning in logging
+                    provider_options["permission_mode"] = permission_mode
+
                 project.agents[node_id] = AgentNode(
                     id=node_id,
                     prompt_path=node_spec.get("prompt", f"prompts/{node_id}.prompt"),
+                    provider=node_spec.get("provider"),  # None = use default
+                    model=node_spec.get("model"),
                     allowed_tools=allowed_tools,
-                    mcp_servers=mcp_servers,
                     max_turns=node_spec.get("max_turns", 50),
-                    permission_mode=node_spec.get("permission_mode", "acceptEdits"),
                     cwd=node_spec.get("cwd"),
+                    provider_options=provider_options,
+                    mcp_servers=mcp_servers,
+                    permission_mode=permission_mode,  # Legacy support
                 )
             elif node_type == "branch":
                 # Parse branch node configuration (sub-workflow calls)

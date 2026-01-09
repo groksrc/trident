@@ -54,19 +54,41 @@ class MCPServerConfig:
 
 @dataclass
 class AgentNode:
-    """Agent node definition - executes via Claude Agent SDK.
+    """Agent node definition - executes via agent provider.
 
-    Agent nodes have access to tools and MCP servers, enabling
-    autonomous multi-turn execution with real-world interactions.
+    Agent nodes have access to tools and MCP servers (provider-dependent),
+    enabling autonomous multi-turn execution with real-world interactions.
+
+    Supported providers:
+        - claude: Claude Agent SDK (default)
+        - openai: OpenAI Agents API
+        - gemini: Google Gemini
+
+    Provider-specific options go in provider_options dict.
+    For example, Claude's permission_mode goes in provider_options.
     """
 
     id: str
     prompt_path: str  # Path to .prompt file
+
+    # Provider selection
+    provider: str | None = None  # "claude", "openai", "gemini" (None = default)
+    model: str | None = None  # Model identifier (provider-specific)
+
+    # Common options
     allowed_tools: list[str] = field(default_factory=list)
-    mcp_servers: dict[str, MCPServerConfig] = field(default_factory=dict)
     max_turns: int = 50  # Default limit for agent iterations
-    permission_mode: str = "acceptEdits"  # Auto-accept file edits
     cwd: str | None = None  # Working directory for agent
+
+    # Provider-specific options
+    provider_options: dict[str, Any] = field(default_factory=dict)
+
+    # MCP servers (supported by some providers)
+    mcp_servers: dict[str, MCPServerConfig] = field(default_factory=dict)
+
+    # Legacy: permission_mode (Claude-specific, deprecated - use provider_options)
+    permission_mode: str = "acceptEdits"
+
     # Parsed prompt content (loaded at runtime)
     prompt_node: PromptNode | None = None
 

@@ -1,78 +1,63 @@
-"""Agent node execution via Claude Agent SDK (SPEC-3).
+"""Agent node execution (backward-compatible facade).
 
-This module provides async execution of agent nodes using the Claude Agent SDK.
-Agents have access to tools and MCP servers for autonomous multi-turn execution.
+This module provides backward-compatible functions for executing agent nodes.
+It delegates to the agent_providers package for actual execution.
+
+For new code, prefer using the agent_providers module directly:
+
+    from trident.agent_providers import get_registry, AgentConfig
+
+    registry = get_registry()
+    provider = registry.get("claude")
+    result = await provider.execute(prompt, config)
 
 Requires: pip install trident[agents]
 """
 
-import json
 import os
 from collections.abc import Callable
-from dataclasses import dataclass, field
 from typing import Any
 
 from .errors import TridentError
 from .parser import AgentNode
 from .template import render
 
-# Type alias for message callbacks
-# Callback receives: (message_type: str, content: Any) -> None
+# Re-export AgentResult from agent_providers for backward compatibility
+from .agent_providers import (
+    AgentConfig,
+    AgentMessage,
+    AgentResult,
+    AgentProviderError,
+    get_registry,
+)
+
+# Type alias for legacy message callbacks
+# Legacy callback receives: (message_type: str, content: Any) -> None
 MessageCallback = Callable[[str, Any], None]
-
-# Check for SDK availability
-try:
-    import anyio
-    from claude_agent_sdk import (
-        AssistantMessage,
-        ClaudeAgentOptions,
-        ResultMessage,
-        TextBlock,
-        ToolResultBlock,
-        ToolUseBlock,
-        query,
-    )
-
-    SDK_AVAILABLE = True
-except ImportError:
-    SDK_AVAILABLE = False
-
-
-@dataclass
-class AgentResult:
-    """Result from agent execution with usage metrics.
-
-    Attributes:
-        output: The parsed output from the agent
-        session_id: Session ID for resuming later
-        num_turns: Number of turns in the agent execution
-        cost_usd: Total cost in USD (None if not available)
-        tokens: Token usage dictionary with input/output counts
-    """
-
-    output: dict[str, Any]
-    session_id: str | None = None
-    num_turns: int = 0
-    cost_usd: float | None = None
-    tokens: dict[str, int] = field(default_factory=dict)
 
 
 class AgentExecutionError(TridentError):
-    """Error during agent execution."""
+    """Error during agent execution.
+
+    This error is raised for backward compatibility.
+    New code should catch AgentProviderError instead.
+    """
 
     pass
 
 
 def check_sdk_available() -> None:
-    """Check if Claude Agent SDK is available.
+    """Check if an agent SDK is available.
 
     Raises:
-        TridentError: If SDK is not installed
+        TridentError: If no agent SDK is installed
     """
-    if not SDK_AVAILABLE:
+    registry = get_registry()
+    available = registry.list_available()
+    if not available:
         raise TridentError(
-            "Claude Agent SDK not installed. "
-            "Install with: pip install trident[agents]"
+            "No agent SDK installed. "
+            "Install with: pip install trident[agents-claude]"
         )
 
 
@@ -84,6 +69,9 @@ async def execute_agent_async(
     on_message: MessageCallback | None = None,
 ) -> AgentResult:
     """Execute an agent node asynchronously.
+
+    This function provides backward compatibility. It delegates to
+    the appropriate provider based on agent_node.provider.
 
     Args:
         agent_node: The agent node configuration
@@ -100,34 +88,12 @@ async def execute_agent_async(
     Raises:
         AgentExecutionError: If agent execution fails
     """
-    check_sdk_available()
-
     # Get the prompt template body
     if not agent_node.prompt_node:
         raise AgentExecutionError(f"Agent {agent_node.id} has no prompt loaded")
 
     # Render the prompt with inputs
     rendered_prompt = render(agent_node.prompt_node.body, inputs)
-
-    # Build MCP server config for SDK
-    mcp_servers: dict[str, Any] = {}
-    for server_name, server_config in agent_node.mcp_servers.items():
-        # Expand environment variables in server env
-        server_env = {}
-        for key, value in server_config.env.items():
-            if value.startswith("${") and value.endswith("}"):
-                env_var = value[2:-1]
-                server_env[key] = os.environ.get(env_var, "")
-            else:
-                server_env[key] = value
-
-        server_dict: dict[str, Any] = {
-            "command": server_config.command,
-            "args": server_config.args,
-        }
-        if server_env:
-            server_dict["env"] = server_env
-        mcp_servers[server_name] = server_dict
 
     # Determine working directory
     cwd = agent_node.cwd
@@ -144,173 +110,105 @@ async def execute_agent_async(
             "schema": json_schema,
         }
 
-    # Build SDK options
-    options = ClaudeAgentOptions(
-        allowed_tools=agent_node.allowed_tools or [],
-        mcp_servers=mcp_servers if mcp_servers else {},
-        cwd=cwd,
+    # Build provider options
+    # Include MCP servers and permission_mode for Claude compatibility
+    provider_options: dict[str, Any] = {}
+
+    # Handle permission_mode (Claude-specific)
+    if hasattr(agent_node, "permission_mode") and agent_node.permission_mode:
+        provider_options["permission_mode"] = agent_node.permission_mode
+
+    # Handle provider_options from agent_node if available
+    if hasattr(agent_node, "provider_options") and agent_node.provider_options:
+        provider_options.update(agent_node.provider_options)
+
+    # Handle MCP servers
+    if agent_node.mcp_servers:
+        # Convert MCPServerConfig objects to dicts
+        mcp_servers_dict = {}
+        for server_name, server_config in agent_node.mcp_servers.items():
+            mcp_servers_dict[server_name] = {
+                "command": server_config.command,
+                "args": server_config.args,
+                "env": server_config.env,
+            }
+        provider_options["mcp_servers"] = mcp_servers_dict
+
+    # Build agent config
+    config = AgentConfig(
         max_turns=agent_node.max_turns,
-        permission_mode=agent_node.permission_mode,  # type: ignore[arg-type]
-        resume=resume_session,
-        output_format=output_format,  # type: ignore[arg-type]
+        cwd=cwd,
+        allowed_tools=agent_node.allowed_tools or [],
+        output_format=output_format,
+        resume_session=resume_session,
+        model=getattr(agent_node, "model", None),
+        provider_options=provider_options,
     )
 
-    # Execute agent and collect response
-    # We keep the last AssistantMessage's text content (the final response)
-    last_assistant_text = ""
-    result_message: ResultMessage | None = None
+    # Get provider
+    provider_name = getattr(agent_node, "provider", None) or "claude"
+    registry = get_registry()
+    provider = registry.get(provider_name)
+
+    if not provider:
+        available = registry.list_registered()
+        raise AgentExecutionError(
+            f"Unknown agent provider '{provider_name}'. "
+            f"Available providers: {', '.join(available) or 'none'}"
+        )
+
+    if not provider.available:
+        raise AgentExecutionError(
+            f"Agent provider '{provider_name}' not installed. "
+            f"Install with: pip install trident[agents-{provider_name}]"
+        )
+
+    # Adapt message callback to new format
+    adapted_callback = None
+    if on_message:
+
+        def adapted_callback(msg: AgentMessage) -> None:
+            on_message(msg.type, msg.content)
+
+    # Execute via provider
     try:
-        async for message in query(prompt=rendered_prompt, options=options):
-            if isinstance(message, AssistantMessage):
-                # Collect all text blocks from this message
-                message_text_parts: list[str] = []
-                tool_uses: list[dict[str, Any]] = []
-                tool_results: list[dict[str, Any]] = []
-                for block in message.content:  # type: ignore[union-attr]
-                    if isinstance(block, TextBlock):
-                        message_text_parts.append(block.text)  # type: ignore[union-attr]
-                    elif isinstance(block, ToolUseBlock):
-                        tool_uses.append(
-                            {"name": block.name, "input": block.input}  # type: ignore[union-attr]
-                        )
-                    elif isinstance(block, ToolResultBlock):
-                        tool_results.append(
-                            {
-                                "tool_use_id": block.tool_use_id,  # type: ignore[union-attr]
-                                "content": block.content,  # type: ignore[union-attr]
-                            }
-                        )
-
-                if message_text_parts:
-                    last_assistant_text = "\n".join(message_text_parts)
-                    if on_message:
-                        on_message("assistant", last_assistant_text)
-
-                # Call callback for tool uses
-                if on_message and tool_uses:
-                    for tool_use in tool_uses:
-                        on_message("tool_use", tool_use)
-
-                # Call callback for tool results
-                if on_message and tool_results:
-                    for tool_result in tool_results:
-                        on_message("tool_result", tool_result)
-
-            elif isinstance(message, ResultMessage):
-                result_message = message
-                if on_message:
-                    on_message(
-                        "result",
-                        {
-                            "num_turns": message.num_turns,  # type: ignore[union-attr]
-                            "cost_usd": message.total_cost_usd,  # type: ignore[union-attr]
-                        },
-                    )
-    except Exception as e:
+        result = await provider.execute(
+            prompt=rendered_prompt,
+            config=config,
+            on_message=adapted_callback,
+        )
+    except AgentProviderError as e:
         raise AgentExecutionError(
             f"Agent '{agent_node.id}' execution failed: {e}"
         ) from e
 
-    # Check for structured output first (API-level validation)
-    structured_output: dict[str, Any] | None = None
-    if result_message and hasattr(result_message, "structured_output"):
-        structured_output = result_message.structured_output  # type: ignore[union-attr]
-
-    # Handle structured output errors
-    if (
-        result_message
-        and hasattr(result_message, "subtype")
-        and result_message.subtype == "error_max_structured_output_retries"  # type: ignore[union-attr]
-    ):
-        raise AgentExecutionError(
-            f"Agent '{agent_node.id}' could not produce valid structured output "
-            f"matching the schema after multiple retries"
-        )
-
-    # Use structured output if available (preferred - API validated)
-    if structured_output is not None:
-        output = structured_output
-    else:
-        # Fallback to text parsing (for backwards compatibility or text output)
-        if not last_assistant_text.strip():
-            raise AgentExecutionError(
-                f"Agent '{agent_node.id}' returned empty response"
-            )
-
-        response_text = last_assistant_text
-
-        # Parse output based on expected format
-        if output_schema.format == "json":
-            try:
-                parsed = _parse_json_response(response_text)
-            except json.JSONDecodeError as e:
-                raise AgentExecutionError(
-                    f"Agent '{agent_node.id}' returned invalid JSON. "
-                    f"Response preview: {response_text[:200]!r}"
-                ) from e
-
-            # Validate against schema if defined
-            if output_schema.fields:
-                _validate_agent_output(parsed, output_schema.fields, agent_node.id)
-
-            output = parsed
-        else:
-            output = {"text": response_text}
-
-    # Build result with usage metrics
-    tokens: dict[str, int] = {}
-    if result_message and result_message.usage:
-        usage = result_message.usage
-        if "input" in usage:
-            tokens["input"] = usage["input"]
-        if "output" in usage:
-            tokens["output"] = usage["output"]
-
-    return AgentResult(
-        output=output,
-        session_id=result_message.session_id if result_message else None,
-        num_turns=result_message.num_turns if result_message else 0,
-        cost_usd=result_message.total_cost_usd if result_message else None,
-        tokens=tokens,
-    )
+    return result
 
 
-def _validate_agent_output(
-    data: dict[str, Any],
-    schema: dict[str, tuple[str, str]],
-    agent_id: str,
-) -> None:
-    """Validate agent output against expected schema.
+def execute_agent(
+    agent_node: AgentNode,
+    inputs: dict[str, Any],
+    project_root: str,
+    resume_session: str | None = None,
+    on_message: MessageCallback | None = None,
+) -> AgentResult:
+    """Execute an agent node synchronously (wrapper for async).
 
     Args:
-        data: Parsed output data
-        schema: Expected fields as {name: (type, description)}
-        agent_id: Agent ID for error messages
+        agent_node: The agent node configuration
+        inputs: Input data from upstream nodes
+        project_root: Project root directory
+        resume_session: Optional session ID to resume
+        on_message: Optional callback for logging/validation
 
-    Raises:
-        AgentExecutionError: If validation fails
+    Returns:
+        AgentResult with output and usage metrics
     """
-    for field_name, (field_type, _desc) in schema.items():
-        if field_name not in data:
-            raise AgentExecutionError(
-                f"Agent '{agent_id}' output missing required field: '{field_name}'"
-            )
+    import anyio
 
-        value = data[field_name]
-        expected_types = {
-            "string": str,
-            "number": (int, float),
-            "integer": int,
-            "boolean": bool,
-            "array": list,
-            "object": dict,
-        }
-        expected = expected_types.get(field_type)
-        if expected and not isinstance(value, expected):
-            raise AgentExecutionError(
-                f"Agent '{agent_id}' output field '{field_name}' "
-                f"expected {field_type}, got {type(value).__name__}"
-            )
+    return anyio.run(
+        execute_agent_async, agent_node, inputs, project_root, resume_session, on_message
+    )
 
 
 def _build_json_schema(fields: dict[str, tuple[str, str]]) -> dict[str, Any]:
@@ -347,15 +245,16 @@ def _build_json_schema(fields: dict[str, tuple[str, str]]) -> dict[str, Any]:
 
 
 def _parse_json_response(text: str) -> dict[str, Any]:
-    """Parse JSON from agent response, handling markdown code blocks.
+    """Parse JSON from agent response text.
 
-    Attempts to extract JSON in order of preference:
-    1. Direct JSON parse (response is pure JSON)
-    2. ```json code block
-    3. ``` code block (assumes JSON content)
+    Handles:
+    - Direct JSON strings
+    - JSON in ```json code blocks
+    - JSON in plain ``` code blocks
+    - Top-level arrays (wrapped in {"result": [...]})
 
     Args:
-        text: Response text that may contain JSON
+        text: The response text to parse
 
     Returns:
         Parsed JSON as dictionary
@@ -363,108 +262,64 @@ def _parse_json_response(text: str) -> dict[str, Any]:
     Raises:
         json.JSONDecodeError: If no valid JSON found
     """
-    text = text.strip()
+    import json
+    import re
 
-    # Try direct parse first (cleanest case)
-    try:
-        parsed = json.loads(text)
-        if isinstance(parsed, dict):
-            return parsed
-        # Handle array or primitive - wrap in dict
-        return {"result": parsed}
-    except json.JSONDecodeError:
-        pass
+    # Try extracting from code blocks first
+    code_block_pattern = r"```(?:json|javascript|js)?\s*\n?(.*?)\n?```"
+    match = re.search(code_block_pattern, text, re.DOTALL)
 
-    # Try to extract from ```json code block
-    if "```json" in text:
-        start = text.find("```json") + 7
-        end = text.find("```", start)
-        if end > start:
-            try:
-                parsed = json.loads(text[start:end].strip())
-                if isinstance(parsed, dict):
-                    return parsed
-                return {"result": parsed}
-            except json.JSONDecodeError:
-                pass  # Fall through to next attempt
+    if match:
+        json_str = match.group(1).strip()
+    else:
+        # Try the whole text as JSON
+        json_str = text.strip()
 
-    # Try to extract from plain ``` code block
-    if "```" in text:
-        start = text.find("```") + 3
-        # Skip language identifier if present (e.g., ```javascript)
-        newline = text.find("\n", start)
-        if newline > start and newline - start < 20:  # Reasonable language id length
-            start = newline + 1
-        end = text.find("```", start)
-        if end > start:
-            try:
-                parsed = json.loads(text[start:end].strip())
-                if isinstance(parsed, dict):
-                    return parsed
-                return {"result": parsed}
-            except json.JSONDecodeError:
-                pass
+    # Parse the JSON
+    result = json.loads(json_str)
 
-    # Try to find JSON object embedded in prose (e.g., "Here's the output: {...}")
-    brace_start = text.find("{")
-    if brace_start >= 0:
-        # Find matching closing brace
-        depth = 0
-        in_string = False
-        escape_next = False
-        for i, char in enumerate(text[brace_start:], brace_start):
-            if escape_next:
-                escape_next = False
-                continue
-            if char == "\\":
-                escape_next = True
-                continue
-            if char == '"' and not escape_next:
-                in_string = not in_string
-                continue
-            if in_string:
-                continue
-            if char == "{":
-                depth += 1
-            elif char == "}":
-                depth -= 1
-                if depth == 0:
-                    try:
-                        parsed = json.loads(text[brace_start : i + 1])
-                        if isinstance(parsed, dict):
-                            return parsed
-                        return {"result": parsed}
-                    except json.JSONDecodeError:
-                        pass
-                    break
+    # Wrap arrays in a dict
+    if isinstance(result, list):
+        return {"result": result}
 
-    raise json.JSONDecodeError(
-        "No valid JSON found in response. Expected raw JSON or markdown code block.",
-        text,
-        0,
-    )
+    return result
 
 
-def execute_agent(
-    agent_node: AgentNode,
-    inputs: dict[str, Any],
-    project_root: str,
-    resume_session: str | None = None,
-    on_message: MessageCallback | None = None,
-) -> AgentResult:
-    """Execute an agent node synchronously (wrapper for async).
+def _validate_agent_output(
+    output: dict[str, Any],
+    schema: dict[str, tuple[str, str]],
+    agent_id: str,
+) -> None:
+    """Validate agent output against schema.
 
     Args:
-        agent_node: The agent node configuration
-        inputs: Input data from upstream nodes
-        project_root: Project root directory
-        resume_session: Optional session ID to resume
-        on_message: Optional callback for logging/validation
+        output: The agent output dictionary
+        schema: Schema mapping {field_name: (type, description)}
+        agent_id: Agent ID for error messages
 
-    Returns:
-        AgentResult with output and usage metrics
+    Raises:
+        AgentExecutionError: If validation fails
     """
-    check_sdk_available()
-    return anyio.run(
-        execute_agent_async, agent_node, inputs, project_root, resume_session, on_message
-    )
+    type_mapping = {
+        "string": str,
+        "number": (int, float),
+        "integer": int,
+        "boolean": bool,
+        "array": list,
+        "object": dict,
+    }
+
+    for field_name, (field_type, _desc) in schema.items():
+        if field_name not in output:
+            raise AgentExecutionError(
+                f"Agent '{agent_id}' output missing required field: {field_name}"
+            )
+
+        value = output[field_name]
+        expected = type_mapping.get(field_type)
+
+        if expected and not isinstance(value, expected):
+            raise AgentExecutionError(
+                f"Agent '{agent_id}' output field '{field_name}' "
+                f"expected {field_type}, got {type(value).__name__}"
+            )

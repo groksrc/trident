@@ -10,9 +10,24 @@ authors = [
 dependencies = []
 
 [project.optional-dependencies]
-agents = [
+# Individual agent providers
+agents-claude = [
     "claude-agent-sdk>=0.1.17",
     "anyio>=4.0.0",
+]
+agents-openai = [
+    "openai>=1.0.0",
+]
+agents-gemini = [
+    "google-generativeai>=0.5.0",
+]
+
+# Convenience groups
+agents = [
+    "trident[agents-claude]",  # Default provider (backward compatible)
+]
+agents-all = [
+    "trident[agents-claude,agents-openai,agents-gemini]",
 ]
 
 [tool.ruff]

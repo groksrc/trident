@@ -26,7 +26,7 @@ Understanding what each node type outputs is critical for writing correct edge m
 | `prompt` (json) | `text` + schema fields | `text` contains parsed JSON; schema fields also accessible |
 | `tool` (dict return) | Dict keys directly | If function returns `{"count": 42}`, use `count` |
 | `tool` (non-dict) | `output` | Wrapped as `{"output": value}` |
-| `agent` | `text` + schema fields | Like prompt, depends on output format |
+| `agent` | `text` + schema fields | Depends on output format. Supports claude, openai, gemini |
 | `branch` | `output`, `text` | Sub-workflow output |
 
 ## Edge Mapping Patterns
@@ -368,6 +368,92 @@ edges:
     mapping:
       ticket: text
 ```
+
+## Agent Nodes
+
+Agent nodes execute autonomous multi-turn tasks with tool access. Trident supports multiple agent providers:
+
+| Provider | SDK | Install Command | MCP Support |
+|----------|-----|-----------------|-------------|
+| `claude` | Claude Agent SDK | `pip install trident[agents-claude]` | Yes |
+| `openai` | OpenAI Agents | `pip install trident[agents-openai]` | No |
+| `gemini` | Google Gemini | `pip install trident[agents-gemini]` | No |
+
+### Basic Agent Node
+
+```yaml
+nodes:
+  analyzer:
+    type: agent
+    prompt: prompts/analyzer.prompt  # Required: prompt file path
+    allowed_tools:                   # Optional: restrict available tools
+      - Read
+      - Write
+      - Glob
+    max_turns: 50                    # Optional: max iterations (default: 50)
+```
+
+### Multi-Provider Agent Nodes
+
+```yaml
+nodes:
+  # Claude agent (default)
+  claude_agent:
+    type: agent
+    provider: claude
+    model: claude-sonnet-4-20250514
+    prompt: prompts/claude_agent.prompt
+    mcp_servers:                     # Claude supports MCP
+      github:
+        command: npx
+        args: ["@modelcontextprotocol/server-github"]
+    provider_options:
+      permission_mode: acceptEdits
+
+  # OpenAI agent
+  openai_agent:
+    type: agent
+    provider: openai
+    model: gpt-4o
+    prompt: prompts/openai_agent.prompt
+    provider_options:
+      temperature: 0.7
+
+  # Gemini agent
+  gemini_agent:
+    type: agent
+    provider: gemini
+    model: gemini-pro
+    prompt: prompts/gemini_agent.prompt
+```
+
+### Agent Configuration Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `provider` | string | `claude` | Agent provider (claude, openai, gemini) |
+| `model` | string | provider default | Model identifier |
+| `prompt` | string | required | Path to .prompt file |
+| `allowed_tools` | array | `[]` | Tools the agent can use |
+| `max_turns` | int | `50` | Maximum iterations |
+| `cwd` | string | project root | Working directory |
+| `mcp_servers` | dict | `{}` | MCP servers (Claude only) |
+| `provider_options` | dict | `{}` | Provider-specific settings |
+
+### Provider Options
+
+**Claude** (`provider_options`):
+- `permission_mode`: `"acceptEdits"` (default), `"bypassPermissions"`
+
+**OpenAI** (`provider_options`):
+- `temperature`: 0-2
+- `top_p`: 0-1
+- `seed`: int (for deterministic outputs)
+
+**Gemini** (`provider_options`):
+- `temperature`: 0-2
+- `top_p`: 0-1
+- `top_k`: int
 
 ## Troubleshooting
 
