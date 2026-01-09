@@ -4,6 +4,40 @@
 
 Trident is a Python-based LLM agent orchestration runtime that executes workflows as directed acyclic graphs (DAGs). This guide covers patterns for authoring Trident workflow manifests (`.tml` files).
 
+## Project Structure
+
+A typical Trident project:
+
+```
+my-project/
+  agent.tml           # Workflow manifest
+  .env                # Environment variables (API keys, etc.)
+  prompts/
+    analyze.prompt    # Prompt definitions
+    report.prompt
+  tools/
+    queries.py        # Python tool implementations
+```
+
+## Environment Variables (.env)
+
+Trident automatically loads a `.env` file from the project root when `load_project()` is called:
+
+```bash
+# .env
+ANTHROPIC_API_KEY=sk-ant-...
+OPENAI_API_KEY=sk-...
+MY_CUSTOM_VAR=value
+```
+
+**Behavior:**
+- Loaded into `os.environ` before manifest parsing
+- Does NOT override existing environment variables
+- Supports `KEY=VALUE` format with optional quotes
+- Comments (`#`) and empty lines are ignored
+
+This allows you to keep API keys alongside your workflow without polluting your shell environment.
+
 ## Manifest Structure
 
 A Trident manifest (`agent.tml`) consists of:
@@ -129,7 +163,7 @@ Tools are automatically available as nodes in edges - just reference them by nam
 
 ### 2. Validate Before Running
 
-Always validate your manifest to catch mapping errors early:
+Trident provides comprehensive validation to catch errors before execution:
 
 ```bash
 # Basic validation - shows warnings
@@ -137,7 +171,23 @@ python -m trident project validate ./my-project
 
 # Strict mode - warnings become errors (use in CI)
 python -m trident project validate ./my-project --strict
+
+# Dry run also validates edge mappings
+python -m trident project run ./my-project --dry-run
 ```
+
+**Validation checks include:**
+
+- **Edge field validation**: Warns if source fields don't exist in node outputs
+- **Type compatibility**: Warns if types don't match (e.g., mapping `string` to `number`)
+- **Tool parameter introspection**: Automatically detects expected inputs from Python function signatures
+- **Required input detection**: Fails at runtime if required prompt inputs are missing
+
+**Type compatibility rules:**
+- Exact type matches always work
+- `integer` ↔ `number` are compatible
+- `object`/`array` → `string` are compatible (JSON serialization)
+- Unknown types (from tools) are assumed compatible
 
 ### 3. Match Input Field Names Exactly
 
@@ -167,12 +217,12 @@ description: Analyze metrics and return insights
 
 input:
   data:
-    type: string
-    required: true
+    type: string       # Used for type validation in edge mappings
+    required: true     # Fails at runtime if not provided
   threshold:
     type: number
     required: false
-    default: 0.5
+    default: 0.5       # Used when input not mapped
 
 output:
   format: json
@@ -383,6 +433,23 @@ edges:
    - Tools returning non-dict: `output`
    - Input nodes: schema field names
 
+### Missing Required Input
+
+**Symptom**: `SchemaValidationError: Missing required input(s) for 'node_name': field_name`
+**Cause**: A required input field wasn't provided via edge mapping
+**Solution**:
+1. Check that an edge maps to the missing field
+2. Verify the source node actually outputs that field
+3. If the field is optional, mark it `required: false` in the prompt
+
+### Type Mismatch Warning
+
+**Symptom**: `Type mismatch: 'field' (string) may not be compatible with 'target' (number)`
+**Cause**: Source field type doesn't match expected target type
+**Solution**:
+- Use compatible types (see type compatibility rules above)
+- Or convert the value in your prompt/tool logic
+
 ### Schema Validation Error
 
 **Symptom**: `Field 'X' expected number, got str`
@@ -402,6 +469,14 @@ edges:
 **Solution**:
 - If the tool returns a dict with that field, the warning is safe to ignore
 - Use `--strict` in CI only after confirming mappings work
+
+### API Key Not Found
+
+**Symptom**: `ANTHROPIC_API_KEY environment variable not set`
+**Cause**: API key not in environment
+**Solution**:
+- Add to `.env` file in project root: `ANTHROPIC_API_KEY=sk-ant-...`
+- Or export in shell: `export ANTHROPIC_API_KEY=sk-ant-...`
 
 ## Running Workflows
 

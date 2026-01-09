@@ -1,10 +1,11 @@
 """Tests for project loading."""
 
+import os
 import tempfile
 import unittest
 from pathlib import Path
 
-from trident.project import ParseError, ValidationError, load_project
+from trident.project import ParseError, ValidationError, _load_dotenv, load_project
 
 
 class TestProjectLoading(unittest.TestCase):
@@ -116,6 +117,133 @@ Test the app at {{app_url}}.
             self.assertIn("playwright", agent.mcp_servers)
             self.assertEqual(agent.mcp_servers["playwright"].command, "npx")
             self.assertEqual(agent.mcp_servers["playwright"].args, ["@playwright/mcp@latest"])
+
+
+class TestDotenvLoading(unittest.TestCase):
+    """Tests for .env file loading."""
+
+    def setUp(self):
+        """Track env vars we set so we can clean up."""
+        self._env_vars_set: list[str] = []
+
+    def tearDown(self):
+        """Clean up any env vars we set."""
+        for key in self._env_vars_set:
+            os.environ.pop(key, None)
+
+    def _track_env(self, key: str) -> None:
+        """Track an env var for cleanup."""
+        self._env_vars_set.append(key)
+
+    def test_load_dotenv_basic(self):
+        """Loads KEY=VALUE pairs into os.environ."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env_file = Path(tmpdir) / ".env"
+            env_file.write_text("TEST_DOTENV_KEY=test_value\n")
+
+            self._track_env("TEST_DOTENV_KEY")
+            _load_dotenv(env_file)
+
+            self.assertEqual(os.environ.get("TEST_DOTENV_KEY"), "test_value")
+
+    def test_load_dotenv_with_double_quotes(self):
+        """Strips double quotes from values."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env_file = Path(tmpdir) / ".env"
+            env_file.write_text('TEST_QUOTED="value with spaces"\n')
+
+            self._track_env("TEST_QUOTED")
+            _load_dotenv(env_file)
+
+            self.assertEqual(os.environ.get("TEST_QUOTED"), "value with spaces")
+
+    def test_load_dotenv_with_single_quotes(self):
+        """Strips single quotes from values."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env_file = Path(tmpdir) / ".env"
+            env_file.write_text("TEST_SINGLE='quoted value'\n")
+
+            self._track_env("TEST_SINGLE")
+            _load_dotenv(env_file)
+
+            self.assertEqual(os.environ.get("TEST_SINGLE"), "quoted value")
+
+    def test_load_dotenv_skips_comments(self):
+        """Ignores # comment lines."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env_file = Path(tmpdir) / ".env"
+            env_file.write_text("# This is a comment\nTEST_COMMENT=value\n# Another comment\n")
+
+            self._track_env("TEST_COMMENT")
+            _load_dotenv(env_file)
+
+            self.assertEqual(os.environ.get("TEST_COMMENT"), "value")
+
+    def test_load_dotenv_skips_empty_lines(self):
+        """Handles blank lines gracefully."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env_file = Path(tmpdir) / ".env"
+            env_file.write_text("\n\nTEST_EMPTY=value\n\n")
+
+            self._track_env("TEST_EMPTY")
+            _load_dotenv(env_file)
+
+            self.assertEqual(os.environ.get("TEST_EMPTY"), "value")
+
+    def test_load_dotenv_no_override(self):
+        """Doesn't override existing env vars."""
+        # Set the var first
+        os.environ["TEST_EXISTING"] = "original"
+        self._track_env("TEST_EXISTING")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env_file = Path(tmpdir) / ".env"
+            env_file.write_text("TEST_EXISTING=new_value\n")
+
+            _load_dotenv(env_file)
+
+            # Should still be original
+            self.assertEqual(os.environ.get("TEST_EXISTING"), "original")
+
+    def test_load_dotenv_missing_file(self):
+        """No error when .env doesn't exist."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env_file = Path(tmpdir) / ".env"
+            # Don't create the file
+            _load_dotenv(env_file)  # Should not raise
+
+    def test_load_dotenv_skips_malformed_lines(self):
+        """Skips lines without = sign."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env_file = Path(tmpdir) / ".env"
+            env_file.write_text("MALFORMED\nTEST_VALID=works\n")
+
+            self._track_env("TEST_VALID")
+            _load_dotenv(env_file)
+
+            self.assertEqual(os.environ.get("TEST_VALID"), "works")
+            self.assertIsNone(os.environ.get("MALFORMED"))
+
+    def test_load_project_with_dotenv(self):
+        """Integration: project loads .env values."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+
+            # Create .env
+            (root / ".env").write_text("TEST_PROJECT_ENV=loaded_from_dotenv\n")
+            self._track_env("TEST_PROJECT_ENV")
+
+            # Create minimal manifest
+            (root / "agent.tml").write_text("""
+trident: "0.1"
+name: test-with-env
+""")
+            (root / "prompts").mkdir()
+
+            project = load_project(root)
+
+            self.assertEqual(project.name, "test-with-env")
+            self.assertEqual(os.environ.get("TEST_PROJECT_ENV"), "loaded_from_dotenv")
 
 
 if __name__ == "__main__":

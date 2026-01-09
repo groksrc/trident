@@ -1,5 +1,6 @@
 """Project and manifest loading."""
 
+import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -82,6 +83,40 @@ class Project:
     env: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
+def _load_dotenv(env_path: Path) -> None:
+    """Load .env file into os.environ if it exists.
+
+    Does not override existing environment variables.
+    Supports standard .env format: KEY=VALUE, with optional quotes.
+
+    Args:
+        env_path: Path to .env file
+    """
+    if not env_path.exists():
+        return
+
+    with open(env_path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            # Skip empty lines and comments
+            if not line or line.startswith("#"):
+                continue
+            # Parse KEY=VALUE
+            if "=" not in line:
+                continue
+            key, _, value = line.partition("=")
+            key = key.strip()
+            value = value.strip()
+            # Strip quotes if present
+            if (value.startswith('"') and value.endswith('"')) or (
+                value.startswith("'") and value.endswith("'")
+            ):
+                value = value[1:-1]
+            # Don't override existing env vars
+            if key not in os.environ:
+                os.environ[key] = value
+
+
 def load_project(path: str | Path) -> Project:
     """Load a Trident project from a file or directory.
 
@@ -115,6 +150,9 @@ def load_project(path: str | Path) -> Project:
                 break
         if manifest_path is None:
             raise ParseError(f"No agent.tml, trident.tml, or trident.yaml found in {root}")
+
+    # Load .env file if present (before parsing manifest)
+    _load_dotenv(root / ".env")
 
     try:
         manifest_text = manifest_path.read_text(encoding="utf-8")
