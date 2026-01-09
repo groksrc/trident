@@ -156,6 +156,139 @@ def get_node_input_fields(project: Project, node_id: str, node_type: str) -> set
     return set()
 
 
+def get_node_output_types(
+    project: Project, node_id: str, node_type: str
+) -> dict[str, str | None]:
+    """Get the fields and their types that a node outputs.
+
+    Args:
+        project: The loaded project
+        node_id: ID of the node
+        node_type: Type of the node
+
+    Returns:
+        Dict mapping field names to their types (None if type unknown)
+    """
+    if node_type == "input":
+        if node_id in project.input_nodes:
+            schema = project.input_nodes[node_id].schema
+            # Input schema is dict[str, str] where value is "type, description"
+            types: dict[str, str | None] = {}
+            for field_name, spec in schema.items():
+                # Parse "string, Description" format
+                field_type = spec.split(",")[0].strip() if "," in spec else spec.strip()
+                types[field_name] = field_type
+            return types
+        return {}
+
+    elif node_type == "prompt":
+        if node_id in project.prompts:
+            prompt = project.prompts[node_id]
+            types = {"text": "string"}  # text is always string
+            if prompt.output.format == "json" and prompt.output.fields:
+                for field_name, (field_type, _desc) in prompt.output.fields.items():
+                    types[field_name] = field_type
+            return types
+        return {"text": "string"}
+
+    elif node_type == "agent":
+        if node_id in project.agents:
+            agent = project.agents[node_id]
+            prompt_path = agent.prompt_path
+            prompt_id = prompt_path.replace("prompts/", "").replace(".prompt", "")
+            if prompt_id in project.prompts:
+                prompt = project.prompts[prompt_id]
+                types: dict[str, str | None] = {"text": "string"}
+                if prompt.output.format == "json" and prompt.output.fields:
+                    for field_name, (field_type, _desc) in prompt.output.fields.items():
+                        types[field_name] = field_type
+                return types
+        return {"text": "string"}
+
+    elif node_type == "tool":
+        # Tools have unknown output types at validation time
+        return {"output": None}
+
+    elif node_type == "branch":
+        return {"output": None, "text": "string"}
+
+    return {}
+
+
+def get_node_input_types(
+    project: Project, node_id: str, node_type: str
+) -> dict[str, str | None]:
+    """Get the fields and their expected types for a node's inputs.
+
+    Args:
+        project: The loaded project
+        node_id: ID of the node
+        node_type: Type of the node
+
+    Returns:
+        Dict mapping field names to their expected types (None if any type accepted)
+    """
+    if node_type == "prompt":
+        if node_id in project.prompts:
+            prompt = project.prompts[node_id]
+            return {name: inp.type for name, inp in prompt.inputs.items()}
+        return {}
+
+    elif node_type == "agent":
+        if node_id in project.agents:
+            agent = project.agents[node_id]
+            prompt_path = agent.prompt_path
+            prompt_id = prompt_path.replace("prompts/", "").replace(".prompt", "")
+            if prompt_id in project.prompts:
+                prompt = project.prompts[prompt_id]
+                return {name: inp.type for name, inp in prompt.inputs.items()}
+        return {}
+
+    elif node_type == "tool":
+        # Tool parameter types from introspection would require more work
+        # For now, return None (accept any type) for tool params
+        if node_id in project.tools:
+            tool_def = project.tools[node_id]
+            params = get_tool_parameters(project.root, tool_def)
+            if params is not None:
+                return {p: None for p in params}  # Type unknown
+        return {}
+
+    # output, input, branch nodes accept any types
+    return {}
+
+
+def types_compatible(source_type: str | None, target_type: str | None) -> bool:
+    """Check if source type is compatible with target type.
+
+    Args:
+        source_type: Type of the source field (None = unknown)
+        target_type: Expected type of target field (None = any)
+
+    Returns:
+        True if types are compatible, False otherwise
+    """
+    # If either type is unknown, assume compatible
+    if source_type is None or target_type is None:
+        return True
+
+    # Exact match
+    if source_type == target_type:
+        return True
+
+    # Compatible type pairs
+    compatible_pairs = {
+        # number includes integer
+        ("integer", "number"),
+        ("number", "integer"),  # Allow narrowing too
+        # object/array can be passed as string (JSON serialized)
+        ("object", "string"),
+        ("array", "string"),
+    }
+
+    return (source_type, target_type) in compatible_pairs
+
+
 def validate_edge_mappings(
     project: Project, dag: "DAG", strict: bool = False
 ) -> ValidationResult:
@@ -182,6 +315,10 @@ def validate_edge_mappings(
         source_fields = get_node_output_fields(project, edge.from_node, source_node.type)
         target_fields = get_node_input_fields(project, edge.to_node, target_node.type)
 
+        # Get type information for type checking
+        source_types = get_node_output_types(project, edge.from_node, source_node.type)
+        target_types = get_node_input_types(project, edge.to_node, target_node.type)
+
         for mapping in edge.mappings:
             # Validate source field
             base_field = mapping.source_expr.split(".")[0]
@@ -207,6 +344,21 @@ def validate_edge_mappings(
                     ),
                     edge_id=edge.id,
                     node_id=edge.to_node,
+                )
+                result.warnings.append(warning)
+
+            # Type compatibility check (only if both fields exist)
+            source_type = source_types.get(base_field)
+            target_type = target_types.get(mapping.target_var)
+            if not types_compatible(source_type, target_type):
+                warning = ValidationWarning(
+                    message=(
+                        f"Type mismatch: '{base_field}' ({source_type}) from "
+                        f"'{edge.from_node}' may not be compatible with "
+                        f"'{mapping.target_var}' ({target_type}) in '{edge.to_node}'"
+                    ),
+                    edge_id=edge.id,
+                    node_id=edge.from_node,
                 )
                 result.warnings.append(warning)
 
