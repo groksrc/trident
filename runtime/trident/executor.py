@@ -314,6 +314,7 @@ def _generate_mock_output(prompt_node: PromptNode) -> dict[str, Any]:
         return {"text": "[DRY RUN] Mock text response"}
 
     # JSON format - generate mock data matching schema
+    # Include text field (raw JSON) + schema fields for consistency
     mock: dict[str, Any] = {}
     for field_name, (field_type, _desc) in prompt_node.output.fields.items():
         if field_type == "string":
@@ -328,7 +329,8 @@ def _generate_mock_output(prompt_node: PromptNode) -> dict[str, Any]:
             mock[field_name] = {}
         else:
             mock[field_name] = None
-    return mock
+    # Include text field with JSON representation
+    return {"text": json.dumps(mock), **mock}
 
 
 def run(
@@ -822,7 +824,8 @@ def _execute_prompt_node(
         if prompt_node.output.fields:
             _validate_schema(parsed, prompt_node.output.fields)
 
-        node_trace.output = parsed
+        # Include both text (raw JSON string) and parsed schema fields
+        node_trace.output = {"text": result.content, **parsed}
     else:
         node_trace.output = {"text": result.content}
 

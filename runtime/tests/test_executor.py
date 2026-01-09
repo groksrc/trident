@@ -236,5 +236,57 @@ class TestParallelExecution(unittest.TestCase):
         self.assertIn("output", node_ids)
 
 
+class TestJsonPromptOutput(unittest.TestCase):
+    """Tests for JSON prompt output format (Issue #1)."""
+
+    def test_generate_mock_output_json_includes_text(self):
+        """JSON prompt mock output includes text field with raw JSON string."""
+        from trident.executor import _generate_mock_output
+        from trident.parser import OutputSchema, PromptNode
+
+        prompt_node = PromptNode(
+            id="test",
+            name="Test",
+            body="Test prompt",
+            output=OutputSchema(
+                format="json",
+                fields={
+                    "status": ("string", "Status"),
+                    "count": ("number", "Count"),
+                },
+            ),
+        )
+
+        output = _generate_mock_output(prompt_node)
+
+        # Should have text field
+        self.assertIn("text", output)
+        # text should be valid JSON string
+        import json
+
+        parsed = json.loads(output["text"])
+        self.assertEqual(parsed["status"], "[mock_status]")
+        self.assertEqual(parsed["count"], 0)
+        # Should also have schema fields directly accessible
+        self.assertEqual(output["status"], "[mock_status]")
+        self.assertEqual(output["count"], 0)
+
+    def test_generate_mock_output_text_has_text(self):
+        """Text prompt mock output has text field."""
+        from trident.executor import _generate_mock_output
+        from trident.parser import OutputSchema, PromptNode
+
+        prompt_node = PromptNode(
+            id="test",
+            name="Test",
+            body="Test prompt",
+            output=OutputSchema(format="text"),
+        )
+
+        output = _generate_mock_output(prompt_node)
+        self.assertIn("text", output)
+        self.assertIn("DRY RUN", output["text"])
+
+
 if __name__ == "__main__":
     unittest.main()
