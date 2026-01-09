@@ -5,6 +5,7 @@ from typing import Any
 
 from .errors import DAGError
 from .project import Edge, Project
+from .tools.python import get_tool_parameters
 
 
 @dataclass
@@ -135,7 +136,13 @@ def get_node_input_fields(project: Project, node_id: str, node_type: str) -> set
         return set()
 
     elif node_type == "tool":
-        # Tool inputs depend on function signature - can't validate statically
+        # Introspect tool function signature for parameter names
+        if node_id in project.tools:
+            tool_def = project.tools[node_id]
+            params = get_tool_parameters(project.root, tool_def)
+            if params is not None:
+                return params
+        # Fallback: can't determine, accept anything
         return set()
 
     elif node_type == "output":

@@ -1,12 +1,75 @@
 """Python tool execution."""
 
 import importlib.util
+import inspect
 import sys
 from pathlib import Path
 from typing import Any
 
 from ..errors import ToolError
 from ..project import ToolDef
+
+
+def get_tool_parameters(project_root: Path, tool_def: ToolDef) -> set[str] | None:
+    """Introspect a Python tool function to get its parameter names.
+
+    Args:
+        project_root: Project root directory
+        tool_def: Tool definition
+
+    Returns:
+        Set of parameter names, or None if introspection fails
+    """
+    if tool_def.type != "python":
+        return None
+
+    module_path = tool_def.module or tool_def.path
+    if not module_path:
+        return None
+
+    # Resolve path
+    if not module_path.endswith(".py"):
+        module_path = f"{module_path}.py"
+
+    full_path = project_root / "tools" / module_path
+    if not full_path.exists():
+        return None
+
+    try:
+        # Load module
+        spec = importlib.util.spec_from_file_location(
+            module_path.replace(".py", "").replace("/", "."),
+            full_path,
+        )
+        if spec is None or spec.loader is None:
+            return None
+
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+
+        # Get function
+        function_name = tool_def.function or "execute"
+        func = getattr(module, function_name, None)
+        if func is None or not callable(func):
+            return None
+
+        # Introspect signature
+        sig = inspect.signature(func)
+        params = set()
+        for name, param in sig.parameters.items():
+            # Skip *args and **kwargs
+            if param.kind in (
+                inspect.Parameter.VAR_POSITIONAL,
+                inspect.Parameter.VAR_KEYWORD,
+            ):
+                continue
+            params.add(name)
+
+        return params
+
+    except Exception:
+        # Introspection failed - return None to indicate unknown
+        return None
 
 
 class PythonToolRunner:
