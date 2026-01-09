@@ -11,7 +11,7 @@ from uuid import uuid4
 
 from .artifacts import ArtifactManager, RunMetadata, get_artifact_manager
 from .conditions import evaluate
-from .dag import DAG, build_dag
+from .dag import DAG, build_dag, validate_edge_mappings
 from .errors import BranchError, NodeExecutionError, SchemaValidationError, TridentError
 from .parser import PromptNode, parse_prompt_file
 from .project import Edge, Project
@@ -262,6 +262,35 @@ def _validate_schema(data: dict[str, Any], schema: dict[str, tuple[str, str]]) -
             )
 
 
+def _validate_required_inputs(
+    gathered: dict[str, Any],
+    prompt_node: PromptNode,
+) -> None:
+    """Validate that all required inputs are present.
+
+    Args:
+        gathered: The gathered inputs from upstream nodes
+        prompt_node: The prompt node with input definitions
+
+    Raises:
+        SchemaValidationError: If a required input is missing
+    """
+    missing = []
+    for name, input_field in prompt_node.inputs.items():
+        if not input_field.required:
+            continue
+        if input_field.default is not None:
+            continue
+        if name not in gathered or gathered[name] is None:
+            missing.append(name)
+
+    if missing:
+        raise SchemaValidationError(
+            f"Missing required input(s) for '{prompt_node.id}': {', '.join(missing)}. "
+            f"Check edge mappings to ensure these fields are provided."
+        )
+
+
 def _gather_inputs(
     node_id: str,
     dag: DAG,
@@ -374,6 +403,17 @@ def run(
 
     # Build DAG - this can raise DAGError for cycles/invalid structure
     dag = build_dag(project)
+
+    # Validate edge mappings - print warnings in dry-run or verbose mode
+    if dry_run or verbose:
+        validation = validate_edge_mappings(project, dag)
+        if validation.warnings:
+            import sys
+
+            print("⚠ Edge mapping warnings:", file=sys.stderr)
+            for warning in validation.warnings:
+                print(f"  - {warning.message}", file=sys.stderr)
+            print(file=sys.stderr)
 
     # Determine entrypoint - fail early if none
     if entrypoint is None:
@@ -771,6 +811,9 @@ def _execute_prompt_node(
     gathered = _gather_inputs(node_id, dag, node_outputs)
     node_trace.input = gathered
 
+    # Validate required inputs are present
+    _validate_required_inputs(gathered, prompt_node)
+
     # Resolve model (node override > project default)
     model = prompt_node.model or project.defaults.get("model")
     if not model:
@@ -878,6 +921,9 @@ def _execute_agent_node(
     # Gather inputs
     gathered = _gather_inputs(node_id, dag, node_outputs)
     node_trace.input = gathered
+
+    # Validate required inputs are present
+    _validate_required_inputs(gathered, agent_node.prompt_node)
 
     if dry_run:
         # Dry run: generate mock output

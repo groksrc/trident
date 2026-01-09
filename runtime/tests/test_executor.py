@@ -236,6 +236,107 @@ class TestParallelExecution(unittest.TestCase):
         self.assertIn("output", node_ids)
 
 
+class TestRequiredInputValidation(unittest.TestCase):
+    """Tests for required input validation."""
+
+    def test_validate_required_inputs_passes_when_present(self):
+        """Validation passes when all required inputs are provided."""
+        from trident.executor import _validate_required_inputs
+        from trident.parser import InputField, OutputSchema, PromptNode
+
+        prompt = PromptNode(
+            id="test",
+            name="Test",
+            body="{{content}}",
+            inputs={
+                "content": InputField(name="content", required=True),
+                "optional": InputField(name="optional", required=False),
+            },
+            output=OutputSchema(format="text"),
+        )
+
+        # Should not raise
+        _validate_required_inputs({"content": "hello"}, prompt)
+
+    def test_validate_required_inputs_fails_when_missing(self):
+        """Validation fails when required input is missing."""
+        from trident.errors import SchemaValidationError
+        from trident.executor import _validate_required_inputs
+        from trident.parser import InputField, OutputSchema, PromptNode
+
+        prompt = PromptNode(
+            id="test",
+            name="Test",
+            body="{{content}}",
+            inputs={
+                "content": InputField(name="content", required=True),
+            },
+            output=OutputSchema(format="text"),
+        )
+
+        with self.assertRaises(SchemaValidationError) as ctx:
+            _validate_required_inputs({}, prompt)
+
+        self.assertIn("content", str(ctx.exception))
+        self.assertIn("Missing required input", str(ctx.exception))
+
+    def test_validate_required_inputs_accepts_none_for_optional(self):
+        """Validation passes when optional input is None."""
+        from trident.executor import _validate_required_inputs
+        from trident.parser import InputField, OutputSchema, PromptNode
+
+        prompt = PromptNode(
+            id="test",
+            name="Test",
+            body="{{content}}",
+            inputs={
+                "content": InputField(name="content", required=True),
+                "optional": InputField(name="optional", required=False),
+            },
+            output=OutputSchema(format="text"),
+        )
+
+        # Should not raise even though optional is None
+        _validate_required_inputs({"content": "hello", "optional": None}, prompt)
+
+    def test_validate_required_inputs_accepts_default(self):
+        """Validation passes when required input has default value."""
+        from trident.executor import _validate_required_inputs
+        from trident.parser import InputField, OutputSchema, PromptNode
+
+        prompt = PromptNode(
+            id="test",
+            name="Test",
+            body="{{content}}",
+            inputs={
+                "content": InputField(name="content", required=True, default="default_value"),
+            },
+            output=OutputSchema(format="text"),
+        )
+
+        # Should not raise because there's a default
+        _validate_required_inputs({}, prompt)
+
+    def test_validate_required_inputs_fails_on_none_value(self):
+        """Validation fails when required input is explicitly None."""
+        from trident.errors import SchemaValidationError
+        from trident.executor import _validate_required_inputs
+        from trident.parser import InputField, OutputSchema, PromptNode
+
+        prompt = PromptNode(
+            id="test",
+            name="Test",
+            body="{{content}}",
+            inputs={
+                "content": InputField(name="content", required=True),
+            },
+            output=OutputSchema(format="text"),
+        )
+
+        with self.assertRaises(SchemaValidationError):
+            _validate_required_inputs({"content": None}, prompt)
+
+
 class TestJsonPromptOutput(unittest.TestCase):
     """Tests for JSON prompt output format (Issue #1)."""
 
