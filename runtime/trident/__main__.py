@@ -285,13 +285,21 @@ def process(text: str) -> dict:
 
 def cmd_project_validate(args) -> int:
     """Validate a project."""
-    from .dag import build_dag, validate_edge_mappings
+    from .dag import build_dag, validate_edge_mappings, validate_subworkflows
 
     project = load_project(args.path)
     dag = build_dag(project)
 
     # Validate edge mappings
     validation = validate_edge_mappings(project, dag, strict=args.strict)
+
+    # Validate sub-workflows (recursive)
+    subworkflow_validation = validate_subworkflows(project, strict=args.strict)
+
+    # Merge results
+    all_warnings = validation.warnings + subworkflow_validation.warnings
+    all_errors = validation.errors + subworkflow_validation.errors
+    all_valid = validation.valid and subworkflow_validation.valid
 
     print(f"Project: {project.name}")
     print(f"  Prompts: {len(project.prompts)}")
@@ -303,24 +311,24 @@ def cmd_project_validate(args) -> int:
     print()
 
     # Show warnings
-    if validation.warnings:
+    if all_warnings:
         print("Warnings:")
-        for warning in validation.warnings:
+        for warning in all_warnings:
             edge_info = f" (edge: {warning.edge_id})" if warning.edge_id else ""
             print(f"  ⚠ {warning.message}{edge_info}")
         print()
 
     # In strict mode, warnings are errors
-    if args.strict and validation.warnings:
-        print(f"FAILED: {len(validation.warnings)} warning(s) in strict mode", file=sys.stderr)
+    if args.strict and all_warnings:
+        print(f"FAILED: {len(all_warnings)} warning(s) in strict mode", file=sys.stderr)
         return ExitCode.VALIDATION_ERROR
 
-    if validation.valid:
+    if all_valid:
         print("✓ Validation passed")
         return 0
     else:
-        print(f"✗ Validation failed: {len(validation.errors)} error(s)", file=sys.stderr)
-        for error in validation.errors:
+        print(f"✗ Validation failed: {len(all_errors)} error(s)", file=sys.stderr)
+        for error in all_errors:
             print(f"  ✗ {error}", file=sys.stderr)
         return ExitCode.VALIDATION_ERROR
 

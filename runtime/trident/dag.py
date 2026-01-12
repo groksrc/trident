@@ -374,6 +374,118 @@ def validate_edge_mappings(
     return result
 
 
+def validate_subworkflows(
+    project: Project,
+    visited: set[str] | None = None,
+    strict: bool = False,
+) -> ValidationResult:
+    """Recursively validate all sub-workflows referenced by branch nodes.
+
+    Args:
+        project: The loaded project
+        visited: Set of already-visited workflow paths (for cycle detection)
+        strict: If True, treat warnings as errors
+
+    Returns:
+        ValidationResult with any errors and warnings from sub-workflows
+    """
+    from pathlib import Path
+
+    from .project import load_project
+
+    result = ValidationResult(valid=True)
+
+    if visited is None:
+        visited = set()
+
+    # Add current project to visited set
+    current_path = str(project.root.resolve())
+    if current_path in visited:
+        result.valid = False
+        result.errors.append(f"Circular workflow reference detected: {current_path}")
+        return result
+    visited.add(current_path)
+
+    # Validate each branch node's sub-workflow
+    for branch_id, branch in project.branches.items():
+        workflow_path = branch.workflow_path
+
+        # Handle "self" reference (recursion is allowed, not a cycle)
+        if workflow_path == "self":
+            continue
+
+        # Resolve path relative to project root
+        resolved_path = (project.root / workflow_path).resolve()
+
+        # Check if file exists
+        if not resolved_path.exists():
+            result.valid = False
+            result.errors.append(
+                f"Branch '{branch_id}': workflow file not found: {workflow_path}"
+            )
+            continue
+
+        # Check for cycles (same file referenced again)
+        resolved_str = str(resolved_path)
+        if resolved_str in visited:
+            result.valid = False
+            result.errors.append(
+                f"Branch '{branch_id}': circular workflow reference to {workflow_path}"
+            )
+            continue
+
+        # Try to load and validate the sub-workflow
+        try:
+            sub_project = load_project(resolved_path)
+        except Exception as e:
+            result.valid = False
+            result.errors.append(
+                f"Branch '{branch_id}': failed to load workflow {workflow_path}: {e}"
+            )
+            continue
+
+        # Build DAG to validate structure
+        try:
+            sub_dag = build_dag(sub_project)
+        except DAGError as e:
+            result.valid = False
+            result.errors.append(
+                f"Branch '{branch_id}': invalid DAG in {workflow_path}: {e}"
+            )
+            continue
+
+        # Validate edge mappings in sub-workflow
+        sub_validation = validate_edge_mappings(sub_project, sub_dag, strict=strict)
+        if not sub_validation.valid:
+            result.valid = False
+            for error in sub_validation.errors:
+                result.errors.append(f"Branch '{branch_id}' ({workflow_path}): {error}")
+        for warning in sub_validation.warnings:
+            result.warnings.append(
+                ValidationWarning(
+                    message=f"Branch '{branch_id}' ({workflow_path}): {warning.message}",
+                    edge_id=warning.edge_id,
+                    node_id=warning.node_id,
+                )
+            )
+
+        # Recursively validate sub-workflows in the sub-workflow
+        sub_subworkflow_result = validate_subworkflows(sub_project, visited.copy(), strict)
+        if not sub_subworkflow_result.valid:
+            result.valid = False
+            result.errors.extend(sub_subworkflow_result.errors)
+        result.warnings.extend(sub_subworkflow_result.warnings)
+
+    # In strict mode, warnings become errors
+    if strict and result.warnings:
+        result.valid = False
+        for w in result.warnings:
+            if w.message not in result.errors:
+                result.errors.append(w.message)
+
+    return result
+
+
 def build_dag(project: Project, validate_mappings_flag: bool = False) -> DAG:
     """Build and validate DAG from project.
 

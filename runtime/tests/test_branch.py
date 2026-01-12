@@ -583,5 +583,289 @@ def execute(counter: int) -> dict:
         self.assertEqual(main_checkpoint.branch_states["loop1"], 2)
 
 
+class TestSubworkflowValidation(unittest.TestCase):
+    """Tests for sub-workflow validation."""
+
+    def test_validate_valid_subworkflow(self):
+        """Test validation passes for valid sub-workflow in its own directory."""
+        from trident.dag import validate_subworkflows
+
+        tmpdir = Path(tempfile.mkdtemp())
+
+        # Create main project
+        project = Project(name="main", root=tmpdir)
+        project.branches["branch1"] = BranchNode(
+            id="branch1",
+            workflow_path="./workflows/sub",  # Directory, not file
+        )
+
+        # Create valid sub-workflow in its own directory
+        sub_dir = tmpdir / "workflows" / "sub"
+        sub_dir.mkdir(parents=True)
+        (sub_dir / "agent.tml").write_text("""
+trident: "0.1"
+name: sub
+nodes:
+  input:
+    type: input
+  output:
+    type: output
+edges:
+  e1:
+    from: input
+    to: output
+""")
+
+        result = validate_subworkflows(project)
+
+        self.assertTrue(result.valid, f"Expected valid, got errors: {result.errors}")
+        self.assertEqual(len(result.errors), 0)
+
+    def test_validate_missing_subworkflow(self):
+        """Test validation fails for missing sub-workflow file."""
+        from trident.dag import validate_subworkflows
+
+        tmpdir = Path(tempfile.mkdtemp())
+
+        project = Project(name="main", root=tmpdir)
+        project.branches["branch1"] = BranchNode(
+            id="branch1",
+            workflow_path="./workflows/nonexistent",
+        )
+
+        result = validate_subworkflows(project)
+
+        self.assertFalse(result.valid)
+        self.assertEqual(len(result.errors), 1)
+        self.assertIn("workflow file not found", result.errors[0])
+        self.assertIn("branch1", result.errors[0])
+
+    def test_validate_invalid_subworkflow_yaml(self):
+        """Test validation fails for invalid YAML in sub-workflow."""
+        from trident.dag import validate_subworkflows
+
+        tmpdir = Path(tempfile.mkdtemp())
+
+        project = Project(name="main", root=tmpdir)
+        project.branches["branch1"] = BranchNode(
+            id="branch1",
+            workflow_path="./workflows/bad",
+        )
+
+        # Create actually invalid YAML (unbalanced braces) in its own directory
+        bad_dir = tmpdir / "workflows" / "bad"
+        bad_dir.mkdir(parents=True)
+        (bad_dir / "agent.tml").write_text("""
+trident: "0.1"
+name: bad
+nodes: {unclosed
+""")
+
+        result = validate_subworkflows(project)
+
+        self.assertFalse(result.valid)
+        self.assertEqual(len(result.errors), 1)
+        self.assertIn("branch1", result.errors[0])
+
+    def test_validate_subworkflow_missing_required_fields(self):
+        """Test validation fails when sub-workflow is missing required fields."""
+        from trident.dag import validate_subworkflows
+
+        tmpdir = Path(tempfile.mkdtemp())
+
+        project = Project(name="main", root=tmpdir)
+        project.branches["branch1"] = BranchNode(
+            id="branch1",
+            workflow_path="./workflows/incomplete",
+        )
+
+        # Create workflow missing 'name' field in its own directory
+        incomplete_dir = tmpdir / "workflows" / "incomplete"
+        incomplete_dir.mkdir(parents=True)
+        (incomplete_dir / "agent.tml").write_text("""
+trident: "0.1"
+nodes:
+  input:
+    type: input
+""")
+
+        result = validate_subworkflows(project)
+
+        self.assertFalse(result.valid)
+        self.assertIn("branch1", result.errors[0])
+
+    def test_validate_self_reference_allowed(self):
+        """Test that 'self' workflow reference is allowed (not a cycle)."""
+        from trident.dag import validate_subworkflows
+
+        tmpdir = Path(tempfile.mkdtemp())
+
+        project = Project(name="main", root=tmpdir)
+        project.branches["recursive"] = BranchNode(
+            id="recursive",
+            workflow_path="self",
+        )
+
+        result = validate_subworkflows(project)
+
+        self.assertTrue(result.valid)
+        self.assertEqual(len(result.errors), 0)
+
+    def test_validate_circular_reference_detected(self):
+        """Test that circular workflow references are detected."""
+        from trident.dag import validate_subworkflows
+
+        tmpdir = Path(tempfile.mkdtemp())
+
+        # Create main project pointing to sub1
+        project = Project(name="main", root=tmpdir)
+        project.branches["branch1"] = BranchNode(
+            id="branch1",
+            workflow_path="./sub1",
+        )
+
+        # Create sub1 pointing back to main (cycle)
+        sub1_dir = tmpdir / "sub1"
+        sub1_dir.mkdir()
+        (sub1_dir / "agent.tml").write_text(f"""
+trident: "0.1"
+name: sub1
+nodes:
+  branch_back:
+    type: branch
+    workflow: {tmpdir.resolve()}
+  input:
+    type: input
+  output:
+    type: output
+edges:
+  e1:
+    from: input
+    to: branch_back
+  e2:
+    from: branch_back
+    to: output
+""")
+
+        result = validate_subworkflows(project)
+
+        self.assertFalse(result.valid)
+        self.assertTrue(any("circular" in e.lower() for e in result.errors))
+
+    def test_validate_nested_subworkflows(self):
+        """Test recursive validation of nested sub-workflows."""
+        from trident.dag import validate_subworkflows
+
+        tmpdir = Path(tempfile.mkdtemp())
+
+        # Main -> sub1 -> sub2
+        project = Project(name="main", root=tmpdir)
+        project.branches["branch1"] = BranchNode(
+            id="branch1",
+            workflow_path="./sub1",
+        )
+
+        # Create sub1 with branch to sub2
+        sub1_dir = tmpdir / "sub1"
+        sub1_dir.mkdir()
+        (sub1_dir / "agent.tml").write_text("""
+trident: "0.1"
+name: sub1
+nodes:
+  input:
+    type: input
+  nested:
+    type: branch
+    workflow: ./sub2
+  output:
+    type: output
+edges:
+  e1:
+    from: input
+    to: nested
+  e2:
+    from: nested
+    to: output
+""")
+
+        # Create sub2 (valid)
+        sub2_dir = sub1_dir / "sub2"
+        sub2_dir.mkdir()
+        (sub2_dir / "agent.tml").write_text("""
+trident: "0.1"
+name: sub2
+nodes:
+  input:
+    type: input
+  output:
+    type: output
+edges:
+  e1:
+    from: input
+    to: output
+""")
+
+        result = validate_subworkflows(project)
+
+        self.assertTrue(result.valid)
+        self.assertEqual(len(result.errors), 0)
+
+    def test_validate_nested_subworkflow_error_propagates(self):
+        """Test errors in nested sub-workflows are reported."""
+        from trident.dag import validate_subworkflows
+
+        tmpdir = Path(tempfile.mkdtemp())
+
+        # Main -> sub1 -> missing_sub2
+        project = Project(name="main", root=tmpdir)
+        project.branches["branch1"] = BranchNode(
+            id="branch1",
+            workflow_path="./sub1",
+        )
+
+        # Create sub1 with branch to non-existent sub2
+        sub1_dir = tmpdir / "sub1"
+        sub1_dir.mkdir()
+        (sub1_dir / "agent.tml").write_text("""
+trident: "0.1"
+name: sub1
+nodes:
+  input:
+    type: input
+  nested:
+    type: branch
+    workflow: ./nonexistent
+  output:
+    type: output
+edges:
+  e1:
+    from: input
+    to: nested
+  e2:
+    from: nested
+    to: output
+""")
+
+        result = validate_subworkflows(project)
+
+        self.assertFalse(result.valid)
+        # Should report the nested error
+        self.assertTrue(any("nonexistent" in e or "not found" in e for e in result.errors))
+
+    def test_validate_no_branches_passes(self):
+        """Test validation passes for project with no branch nodes."""
+        from trident.dag import validate_subworkflows
+
+        tmpdir = Path(tempfile.mkdtemp())
+
+        project = Project(name="main", root=tmpdir)
+        # No branches
+
+        result = validate_subworkflows(project)
+
+        self.assertTrue(result.valid)
+        self.assertEqual(len(result.errors), 0)
+
+
 if __name__ == "__main__":
     unittest.main()
