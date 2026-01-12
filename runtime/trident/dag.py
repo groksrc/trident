@@ -172,11 +172,15 @@ def get_node_output_types(
     if node_type == "input":
         if node_id in project.input_nodes:
             schema = project.input_nodes[node_id].schema
-            # Input schema is dict[str, str] where value is "type, description"
+            # Input schema is dict[str, tuple[str, str]] where tuple is (type, description)
             types: dict[str, str | None] = {}
             for field_name, spec in schema.items():
-                # Parse "string, Description" format
-                field_type = spec.split(",")[0].strip() if "," in spec else spec.strip()
+                # Handle tuple format from project.py
+                if isinstance(spec, tuple):
+                    field_type = spec[0]
+                else:
+                    # Fallback for string format "string, Description"
+                    field_type = spec.split(",")[0].strip() if "," in spec else spec.strip()
                 types[field_name] = field_type
             return types
         return {}

@@ -205,6 +205,254 @@ edges:
       # NOT: data: text  # This would fail - 'data' not expected
 ```
 
+## Branch Nodes and Iterative Loops
+
+Branch nodes execute sub-workflows with optional iterative looping. This is how you implement patterns like "refine until quality is good" or "retry until success".
+
+### How Branch Nodes Work
+
+```yaml
+# Main workflow
+nodes:
+  refine_loop:
+    type: branch
+    workflow: ./workflows/quality-check.tml
+    loop_while: "needs_refinement == true"
+    max_iterations: 3
+
+edges:
+  e1:
+    from: input
+    to: refine_loop
+    mapping:
+      text: text
+```
+
+**Key behaviors:**
+- Branch node loads and executes a separate sub-workflow
+- The sub-workflow receives inputs via edge mappings
+- If `loop_while` is specified, the sub-workflow re-executes until condition is false
+- Each iteration receives the **previous iteration's output as its input**
+- Loop terminates when condition is false OR `max_iterations` is reached
+- The branch node outputs the final iteration's output
+
+### Critical Requirements for Loops
+
+#### 1. Sub-Workflow Must Be Self-Contained
+
+**WRONG**: Sub-workflow in same directory shares prompts
+```
+my-project/
+  agent.tml              # Main workflow
+  sub-workflow.tml       # Sub-workflow (WRONG LOCATION)
+  prompts/
+    process.prompt       # Shared prompts cause conflicts!
+```
+
+**CORRECT**: Sub-workflow in separate directory
+```
+my-project/
+  agent.tml              # Main workflow
+  workflows/
+    quality-loop.tml     # Sub-workflow
+    prompts/
+      process.prompt     # Sub-workflow's prompts
+```
+
+**Why**: Trident loads all prompts from the project root. If the main workflow and sub-workflow share the same `prompts/` directory, they will conflict during DAG construction.
+
+#### 2. Sub-Workflow Output Schema Must Match Input Schema
+
+For loops to work, iteration N+1 must be able to consume iteration N's output:
+
+```yaml
+# Sub-workflow: quality-loop.tml
+nodes:
+  loop_input:
+    type: input
+    schema:
+      text: string, Text to process
+
+  loop_output:
+    type: output
+    format: json
+    # Output MUST include 'text' field for next iteration
+
+edges:
+  e1:
+    from: process
+    to: loop_output
+    mapping:
+      text: text                    # Required for loop
+      needs_refinement: needs_refinement  # Used by loop_while condition
+      quality_score: quality_score  # Additional data
+```
+
+**Critical**: The output must contain at least the same fields as the input for the loop to continue.
+
+#### 3. Loop Condition Evaluates Output Fields
+
+```yaml
+loop_while: "needs_refinement == true"
+```
+
+The condition has access to:
+- `output` - the entire output dict
+- All output field names directly (e.g., `needs_refinement`, `quality_score`)
+
+**Common conditions:**
+- `needs_refinement == true` - boolean flag
+- `quality_score < 80` - numeric threshold
+- `status != 'complete'` - string comparison
+
+#### 4. Max Iterations Must Be Set
+
+```yaml
+max_iterations: 3  # REQUIRED when using loop_while
+```
+
+Without this, Trident will error. This prevents infinite loops.
+
+If max iterations is reached and `loop_while` is still true, the branch node **fails** with a `BranchError: Max iterations (N) reached`.
+
+### Common Gotchas
+
+#### ❌ Dry Run Doesn't Simulate Loops
+
+Dry runs skip branch node execution entirely:
+```bash
+python -m trident project run --dry-run  # Won't test loop logic
+```
+
+To test loops, you **must** do a real execution with LLM calls.
+
+#### ❌ DAGs Cannot Have Cycles
+
+You **cannot** create loops in the main DAG like this:
+
+**WRONG**:
+```yaml
+edges:
+  e1: input → process
+  e2: process → refine
+  e3: refine → process  # ❌ CYCLE! DAG validation will fail
+```
+
+**CORRECT**: Use a branch node with `loop_while` instead.
+
+### Complete Loop Example
+
+See `examples/text-refinement-loop/` for a working example.
+
+**Main workflow** (`agent.tml`):
+```yaml
+nodes:
+  input:
+    type: input
+    schema:
+      text: string, Text to refine
+
+  refine_loop:
+    type: branch
+    workflow: ./workflows/quality-loop.tml
+    loop_while: "needs_refinement == true"
+    max_iterations: 3
+
+  output:
+    type: output
+    format: json
+
+edges:
+  e1:
+    from: input
+    to: refine_loop
+    mapping:
+      text: text
+
+  e2:
+    from: refine_loop
+    to: output
+    mapping:
+      result: output
+```
+
+**Sub-workflow** (`workflows/quality-loop.tml`):
+```yaml
+nodes:
+  loop_input:
+    type: input
+    schema:
+      text: string, Text to evaluate and refine
+
+  process:
+    type: prompt
+    prompt: prompts/process.prompt
+
+  loop_output:
+    type: output
+    format: json
+
+edges:
+  e1:
+    from: loop_input
+    to: process
+    mapping:
+      text: text
+
+  e2:
+    from: process
+    to: loop_output
+    mapping:
+      text: text
+      needs_refinement: needs_refinement
+      quality_score: quality_score
+```
+
+**Prompt** (`workflows/prompts/process.prompt`):
+```yaml
+---
+id: process
+input:
+  text:
+    type: string
+    required: true
+
+output:
+  format: json
+  schema:
+    text: string, The refined text
+    quality_score: number, Quality score 0-100
+    needs_refinement: boolean, True if score < 85
+---
+Evaluate and refine this text:
+
+{{text}}
+
+Return JSON with:
+- text: refined version (or original if quality >= 85)
+- quality_score: numeric score
+- needs_refinement: true if score < 85
+```
+
+### Debugging Loop Issues
+
+**Check iteration artifacts:**
+```bash
+ls .trident/runs/<run-id>/branches/<branch-name>/
+cat .trident/runs/<run-id>/branches/<branch-name>/iteration_0.json
+```
+
+Each iteration saves:
+- `inputs` - what the sub-workflow received
+- `outputs` - what the sub-workflow produced
+- `success` - whether it succeeded
+- `started_at`, `ended_at` - timing info
+
+**Common issues:**
+1. Loop condition never becomes false → hits max_iterations
+2. Output schema mismatch → next iteration fails with missing input fields
+3. Prompt directory shared between workflows → DAG construction conflicts
+
 ## Prompt File Structure
 
 Prompts use YAML frontmatter for metadata and Jinja2 templates for the body:

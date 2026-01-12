@@ -1,0 +1,36 @@
+---
+id: process
+name: Text Processor
+description: Check quality and refine text if needed
+
+input:
+  text:
+    type: string
+    required: true
+    description: The text to evaluate and potentially refine
+
+output:
+  format: json
+  schema:
+    text: string, The refined text (or original if quality is good)
+    quality_score: number, Quality score from 0-100
+    needs_refinement: boolean, True if more refinement is needed
+---
+You are a text quality processor. Evaluate the following text and improve it if needed.
+
+Text to process:
+{{text}}
+
+Instructions:
+1. Evaluate quality based on: clarity, grammar, completeness, professional tone
+2. If quality score < 80, refine the text to improve it
+3. Return the refined text (or original if already good)
+4. Indicate if more refinement passes are needed
+
+Return a JSON object with:
+- text: the refined text (or original if quality >= 80)
+- quality_score: numeric score from 0-100 (be realistic, increase score if you refined it)
+- needs_refinement: true if quality_score < 85, false if quality_score >= 85
+
+Be critical on first pass - most texts should score below 85 initially to test the loop.
+After refinement, increase the score by 10-20 points but keep it realistic.

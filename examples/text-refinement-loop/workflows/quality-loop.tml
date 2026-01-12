@@ -1,0 +1,41 @@
+trident: "0.1"
+name: quality-loop
+description: Sub-workflow that checks and refines text (single pass)
+version: "1.0.0"
+
+defaults:
+  model: anthropic/claude-sonnet-4-20250514
+  temperature: 0.7
+  max_tokens: 1024
+
+entrypoints:
+  - loop_input
+
+nodes:
+  loop_input:
+    type: input
+    schema:
+      text: string, Text to evaluate and refine
+
+  process:
+    type: prompt
+    prompt: prompts/process.prompt
+
+  loop_output:
+    type: output
+    format: json
+
+edges:
+  e1:
+    from: loop_input
+    to: process
+    mapping:
+      text: text
+
+  e2:
+    from: process
+    to: loop_output
+    mapping:
+      text: text
+      needs_refinement: needs_refinement
+      quality_score: quality_score
