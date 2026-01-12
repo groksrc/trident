@@ -1,13 +1,15 @@
 [project]
 name = "trident"
-version = "0.4.0"
+version = "0.5.0"
 description = "Python runtime for LLM agent orchestration with Claude Agent SDK support"
 requires-python = ">=3.12"
 license = {text = "MIT"}
 authors = [
     {name = "Drew Cain", email = "groksrc@gmail.com"}
 ]
-dependencies = []
+dependencies = [
+    "pyyaml>=6.0",
+]
 
 [project.optional-dependencies]
 agents = [

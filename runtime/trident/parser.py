@@ -5,6 +5,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+import yaml
+
 from .errors import ParseError
 
 
@@ -101,157 +103,13 @@ class BranchNode:
     max_iterations: int = 10  # Safety limit to prevent infinite loops
 
 
-def _parse_value(value: str) -> Any:
-    """Parse a YAML value into Python type."""
-    value = value.strip()
-
-    if not value:
-        return None
-
-    # Strip trailing comments (but not inside quotes)
-    if not value.startswith('"') and not value.startswith("'"):
-        comment_pos = value.find("  #")
-        if comment_pos > 0:
-            value = value[:comment_pos].strip()
-
-    # Strip quotes
-    if (value.startswith('"') and value.endswith('"')) or (
-        value.startswith("'") and value.endswith("'")
-    ):
-        return value[1:-1]
-
-    # Handle inline JSON arrays like ["item1", "item2"]
-    if value.startswith("[") and value.endswith("]"):
-        inner = value[1:-1].strip()
-        if not inner:
-            return []
-        # Parse comma-separated items
-        items = []
-        for item in inner.split(","):
-            item = item.strip()
-            # Strip quotes from each item
-            if (item.startswith('"') and item.endswith('"')) or (
-                item.startswith("'") and item.endswith("'")
-            ):
-                item = item[1:-1]
-            items.append(item)
-        return items
-
-    # Booleans
-    if value.lower() == "true":
-        return True
-    if value.lower() == "false":
-        return False
-    if value.lower() == "null" or value == "~":
-        return None
-
-    # Numbers
-    try:
-        if "." in value:
-            return float(value)
-        return int(value)
-    except ValueError:
-        pass
-
-    return value
-
-
 def parse_yaml_simple(text: str) -> dict[str, Any]:
-    """Simple YAML parser for frontmatter.
+    """Parse YAML text into a dictionary.
 
-    Supports: strings, numbers, booleans, nested dicts, simple lists.
-    Does NOT support: multi-line strings, anchors, complex nesting.
+    Uses PyYAML's safe_load for full YAML 1.1 spec support.
     """
-    lines = text.split("\n")
-    return _parse_yaml_block(lines, 0, 0)[0]
-
-
-def _parse_yaml_block(lines: list[str], start: int, min_indent: int) -> tuple[dict[str, Any], int]:
-    """Parse a YAML block at the given indentation level."""
-    result: dict[str, Any] = {}
-    i = start
-
-    while i < len(lines):
-        line = lines[i]
-        stripped = line.lstrip()
-
-        # Skip empty lines and comments
-        if not stripped or stripped.startswith("#"):
-            i += 1
-            continue
-
-        indent = len(line) - len(stripped)
-
-        # If we've dedented past our level, we're done
-        if indent < min_indent:
-            break
-
-        # Handle list items
-        if stripped.startswith("- "):
-            # This is a list - find the key and parse as list
-            i += 1
-            continue
-
-        # Handle key: value
-        if ":" in stripped:
-            colon_pos = stripped.index(":")
-            key = stripped[:colon_pos].strip()
-            value_part = stripped[colon_pos + 1 :].strip()
-
-            if value_part:
-                # Inline value
-                result[key] = _parse_value(value_part)
-                i += 1
-            else:
-                # Nested structure - look ahead to determine type
-                i += 1
-                if i < len(lines):
-                    next_line = lines[i].lstrip()
-                    next_indent = len(lines[i]) - len(next_line) if next_line else 0
-
-                    if next_line.startswith("- "):
-                        # It's a list
-                        result[key], i = _parse_yaml_list(lines, i, next_indent)
-                    elif next_indent > indent:
-                        # It's a nested dict
-                        result[key], i = _parse_yaml_block(lines, i, next_indent)
-                    else:
-                        # Empty value
-                        result[key] = None
-                else:
-                    result[key] = None
-        else:
-            i += 1
-
-    return result, i
-
-
-def _parse_yaml_list(lines: list[str], start: int, min_indent: int) -> tuple[list[Any], int]:
-    """Parse a YAML list."""
-    result: list[Any] = []
-    i = start
-
-    while i < len(lines):
-        line = lines[i]
-        stripped = line.lstrip()
-
-        if not stripped or stripped.startswith("#"):
-            i += 1
-            continue
-
-        indent = len(line) - len(stripped)
-
-        if indent < min_indent:
-            break
-
-        if stripped.startswith("- "):
-            value = stripped[2:].strip()
-            result.append(_parse_value(value))
-            i += 1
-        else:
-            break
-
-    return result, i
+    result = yaml.safe_load(text)
+    return result if result is not None else {}
 
 
 def parse_schema_field(value: str) -> tuple[str, str]:
