@@ -1,7 +1,6 @@
 """DAG construction and validation."""
 
 from dataclasses import dataclass, field
-from typing import Any
 
 from .errors import DAGError
 from .project import Edge, Project
@@ -156,9 +155,7 @@ def get_node_input_fields(project: Project, node_id: str, node_type: str) -> set
     return set()
 
 
-def get_node_output_types(
-    project: Project, node_id: str, node_type: str
-) -> dict[str, str | None]:
+def get_node_output_types(project: Project, node_id: str, node_type: str) -> dict[str, str | None]:
     """Get the fields and their types that a node outputs.
 
     Args:
@@ -219,9 +216,7 @@ def get_node_output_types(
     return {}
 
 
-def get_node_input_types(
-    project: Project, node_id: str, node_type: str
-) -> dict[str, str | None]:
+def get_node_input_types(project: Project, node_id: str, node_type: str) -> dict[str, str | None]:
     """Get the fields and their expected types for a node's inputs.
 
     Args:
@@ -293,9 +288,7 @@ def types_compatible(source_type: str | None, target_type: str | None) -> bool:
     return (source_type, target_type) in compatible_pairs
 
 
-def validate_edge_mappings(
-    project: Project, dag: "DAG", strict: bool = False
-) -> ValidationResult:
+def validate_edge_mappings(project: Project, dag: "DAG", strict: bool = False) -> ValidationResult:
     """Validate edge mappings against node input/output contracts.
 
     Args:
@@ -389,7 +382,6 @@ def validate_subworkflows(
     Returns:
         ValidationResult with any errors and warnings from sub-workflows
     """
-    from pathlib import Path
 
     from .project import load_project
 
@@ -420,9 +412,7 @@ def validate_subworkflows(
         # Check if file exists
         if not resolved_path.exists():
             result.valid = False
-            result.errors.append(
-                f"Branch '{branch_id}': workflow file not found: {workflow_path}"
-            )
+            result.errors.append(f"Branch '{branch_id}': workflow file not found: {workflow_path}")
             continue
 
         # Check for cycles (same file referenced again)
@@ -449,9 +439,7 @@ def validate_subworkflows(
             sub_dag = build_dag(sub_project)
         except DAGError as e:
             result.valid = False
-            result.errors.append(
-                f"Branch '{branch_id}': invalid DAG in {workflow_path}: {e}"
-            )
+            result.errors.append(f"Branch '{branch_id}': invalid DAG in {workflow_path}: {e}")
             continue
 
         # Validate edge mappings in sub-workflow
@@ -571,6 +559,7 @@ def build_dag(project: Project, validate_mappings_flag: bool = False) -> DAG:
         validation = validate_edge_mappings(project, dag)
         if validation.warnings:
             import sys
+
             print("Edge mapping warnings:", file=sys.stderr)
             for warning in validation.warnings:
                 print(f"  ⚠ {warning.message}", file=sys.stderr)

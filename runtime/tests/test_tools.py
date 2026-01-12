@@ -32,10 +32,10 @@ class TestToolIntrospection(unittest.TestCase):
         """Introspects a simple function with named parameters."""
         self._write_tool(
             "simple.py",
-            '''
+            """
 def process(name: str, count: int) -> dict:
     return {"result": f"{name} x {count}"}
-''',
+""",
         )
 
         tool_def = ToolDef(
@@ -52,10 +52,10 @@ def process(name: str, count: int) -> dict:
         """Introspects a function with default parameter values."""
         self._write_tool(
             "defaults.py",
-            '''
+            """
 def fetch(query: str, limit: int = 10, offset: int = 0) -> dict:
     return {"items": []}
-''',
+""",
         )
 
         tool_def = ToolDef(
@@ -72,10 +72,10 @@ def fetch(query: str, limit: int = 10, offset: int = 0) -> dict:
         """Introspects a function with **kwargs - should skip var keyword."""
         self._write_tool(
             "kwargs.py",
-            '''
+            """
 def flexible(required: str, **kwargs) -> dict:
     return {"data": required}
-''',
+""",
         )
 
         tool_def = ToolDef(
@@ -93,10 +93,10 @@ def flexible(required: str, **kwargs) -> dict:
         """Introspects a function with *args - should skip var positional."""
         self._write_tool(
             "args.py",
-            '''
+            """
 def variadic(first: str, *args) -> dict:
     return {"first": first, "rest": args}
-''',
+""",
         )
 
         tool_def = ToolDef(
@@ -114,10 +114,10 @@ def variadic(first: str, *args) -> dict:
         """Introspects the default 'execute' function when no function specified."""
         self._write_tool(
             "default_fn.py",
-            '''
+            """
 def execute(input_data: str) -> dict:
     return {"output": input_data}
-''',
+""",
         )
 
         tool_def = ToolDef(
@@ -146,10 +146,10 @@ def execute(input_data: str) -> dict:
         """Returns None when function doesn't exist in module."""
         self._write_tool(
             "no_func.py",
-            '''
+            """
 def other_function():
     pass
-''',
+""",
         )
 
         tool_def = ToolDef(
@@ -177,11 +177,11 @@ def other_function():
         """Introspects a function with no parameters."""
         self._write_tool(
             "no_params.py",
-            '''
+            """
 def get_timestamp() -> dict:
     import time
     return {"timestamp": time.time()}
-''',
+""",
         )
 
         tool_def = ToolDef(

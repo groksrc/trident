@@ -172,7 +172,9 @@ class TestDAG(unittest.TestCase):
 
     def test_visualize_dag_mermaid_basic(self):
         """Test Mermaid DAG visualization generates valid syntax."""
-        project = self._make_project([("input", "analyze"), ("analyze", "output")], prompts=["analyze"])
+        project = self._make_project(
+            [("input", "analyze"), ("analyze", "output")], prompts=["analyze"]
+        )
         dag = build_dag(project)
         mermaid = visualize_dag_mermaid(dag)
 
@@ -302,7 +304,6 @@ class TestGetNodeOutputTypes(unittest.TestCase):
     def test_input_node_output_types(self):
         """Input node returns types from schema."""
         from trident.dag import get_node_output_types
-        from trident.parser import OutputSchema
 
         project = self._make_project()
         project.input_nodes["input"] = InputNode(

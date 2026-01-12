@@ -141,7 +141,7 @@ That's all!"""
         """Top-level arrays are wrapped in dict."""
         from trident.agents import _parse_json_response
 
-        result = _parse_json_response('[1, 2, 3]')
+        result = _parse_json_response("[1, 2, 3]")
         self.assertEqual(result["result"], [1, 2, 3])
 
     def test_parse_invalid_json_raises(self):
@@ -528,8 +528,8 @@ Use Glob to list files in the current directory. Return {"result": "found N file
             # Create a test file to find
             (root / "test.txt").write_text("hello world")
 
-            from trident.project import load_project
             from trident.executor import run
+            from trident.project import load_project
 
             project = load_project(root)
             result = run(project, inputs={})

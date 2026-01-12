@@ -71,8 +71,7 @@ def check_sdk_available() -> None:
     """
     if not SDK_AVAILABLE:
         raise TridentError(
-            "Claude Agent SDK not installed. "
-            "Install with: pip install trident[agents]"
+            "Claude Agent SDK not installed. Install with: pip install trident[agents]"
         )
 
 
@@ -207,9 +206,7 @@ async def execute_agent_async(
                         },
                     )
     except Exception as e:
-        raise AgentExecutionError(
-            f"Agent '{agent_node.id}' execution failed: {e}"
-        ) from e
+        raise AgentExecutionError(f"Agent '{agent_node.id}' execution failed: {e}") from e
 
     # Check for structured output first (API-level validation)
     structured_output: dict[str, Any] | None = None
@@ -233,9 +230,7 @@ async def execute_agent_async(
     else:
         # Fallback to text parsing (for backwards compatibility or text output)
         if not last_assistant_text.strip():
-            raise AgentExecutionError(
-                f"Agent '{agent_node.id}' returned empty response"
-            )
+            raise AgentExecutionError(f"Agent '{agent_node.id}' returned empty response")
 
         response_text = last_assistant_text
 

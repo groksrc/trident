@@ -290,9 +290,7 @@ class ArtifactManager:
             "started_at": checkpoint.started_at,
             "updated_at": checkpoint.updated_at,
             "status": checkpoint.status,
-            "completed_nodes": {
-                k: asdict(v) for k, v in checkpoint.completed_nodes.items()
-            },
+            "completed_nodes": {k: asdict(v) for k, v in checkpoint.completed_nodes.items()},
             "pending_nodes": checkpoint.pending_nodes,
             "total_cost_usd": checkpoint.total_cost_usd,
             "inputs": checkpoint.inputs,

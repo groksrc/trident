@@ -65,9 +65,7 @@ edges:
 
         self.assertTrue(result.success)
         # Check branch node executed correctly
-        branch_trace = next(
-            (n for n in result.trace.nodes if n.id == "branch1"), None
-        )
+        branch_trace = next((n for n in result.trace.nodes if n.id == "branch1"), None)
         self.assertIsNotNone(branch_trace)
         self.assertFalse(branch_trace.skipped)
         self.assertIn("dry_run", branch_trace.output)
@@ -82,9 +80,7 @@ edges:
 
         self.assertTrue(result.success)
         # Branch should be skipped, trace should show it
-        branch_trace = next(
-            (n for n in result.trace.nodes if n.id == "branch1"), None
-        )
+        branch_trace = next((n for n in result.trace.nodes if n.id == "branch1"), None)
         self.assertIsNotNone(branch_trace)
         self.assertTrue(branch_trace.skipped)
 
@@ -97,17 +93,13 @@ edges:
         result = run(project, inputs={"value": 42}, dry_run=True)
 
         self.assertTrue(result.success)
-        branch_trace = next(
-            (n for n in result.trace.nodes if n.id == "branch1"), None
-        )
+        branch_trace = next((n for n in result.trace.nodes if n.id == "branch1"), None)
         self.assertIsNotNone(branch_trace)
         self.assertFalse(branch_trace.skipped)
 
     def test_branch_missing_workflow(self):
         """Test error when sub-workflow file doesn't exist."""
-        project, tmpdir = self._make_project_with_branch(
-            branch_workflow="./nonexistent.yaml"
-        )
+        project, tmpdir = self._make_project_with_branch(branch_workflow="./nonexistent.yaml")
 
         result = run(project, inputs={"value": 42}, dry_run=False)
 
@@ -207,9 +199,7 @@ edges:
 
         # Dry run should succeed
         self.assertTrue(result.success)
-        branch_trace = next(
-            (n for n in result.trace.nodes if n.id == "loop1"), None
-        )
+        branch_trace = next((n for n in result.trace.nodes if n.id == "loop1"), None)
         self.assertIsNotNone(branch_trace)
 
     def test_loop_max_iterations_in_dry_run(self):
@@ -416,7 +406,6 @@ def execute(counter: int) -> dict:
         self.assertTrue(result.success)
 
         # Check iteration artifacts were saved
-        from trident.artifacts import ArtifactManager, ArtifactConfig
 
         # Find the run directory
         runs_dir = artifact_dir / "runs"
@@ -548,10 +537,10 @@ edges:
 
         tools_dir = sub_dir / "tools"
         tools_dir.mkdir()
-        (tools_dir / "inc_tool.py").write_text('''
+        (tools_dir / "inc_tool.py").write_text("""
 def execute(counter: int) -> dict:
     return {"counter": counter + 1}
-''')
+""")
 
         result = run(
             project,

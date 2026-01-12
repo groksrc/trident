@@ -29,8 +29,7 @@ except ImportError:
 
     def execute_agent(*args: Any, **kwargs: Any) -> Any:
         raise TridentError(
-            "Agent execution requires Claude Agent SDK. "
-            "Install with: pip install trident[agents]"
+            "Agent execution requires Claude Agent SDK. Install with: pip install trident[agents]"
         )
 
 
@@ -199,9 +198,7 @@ class Checkpoint:
             "started_at": self.started_at,
             "updated_at": self.updated_at,
             "status": self.status,
-            "completed_nodes": {
-                k: asdict(v) for k, v in self.completed_nodes.items()
-            },
+            "completed_nodes": {k: asdict(v) for k, v in self.completed_nodes.items()},
             "pending_nodes": self.pending_nodes,
             "total_cost_usd": self.total_cost_usd,
             "inputs": self.inputs,
@@ -427,7 +424,9 @@ def run(
     checkpoint_path_obj: Path | None = None
 
     if checkpoint_dir:
-        checkpoint_path_obj = Path(checkpoint_dir) if isinstance(checkpoint_dir, str) else checkpoint_dir
+        checkpoint_path_obj = (
+            Path(checkpoint_dir) if isinstance(checkpoint_dir, str) else checkpoint_dir
+        )
 
     if resume_from:
         # Load checkpoint to resume from
@@ -747,14 +746,19 @@ async def _execute_node_async(
             # Run prompt execution in thread pool (I/O-bound)
             await asyncio.to_thread(
                 _execute_prompt_node,
-                node_id, project, dag, node_outputs, node_trace, registry, dry_run
+                node_id,
+                project,
+                dag,
+                node_outputs,
+                node_trace,
+                registry,
+                dry_run,
             )
 
         elif node.type == "tool":
             # Run tool execution in thread pool
             await asyncio.to_thread(
-                _execute_tool_node,
-                node_id, project, dag, node_outputs, node_trace, tool_runner
+                _execute_tool_node, node_id, project, dag, node_outputs, node_trace, tool_runner
             )
 
         elif node.type == "agent":
@@ -762,17 +766,32 @@ async def _execute_node_async(
             # Agent execution already supports async via asyncio.run inside
             await asyncio.to_thread(
                 _execute_agent_node,
-                node_id, project, dag, node_outputs, node_trace,
-                dry_run, session_to_resume, on_agent_message
+                node_id,
+                project,
+                dag,
+                node_outputs,
+                node_trace,
+                dry_run,
+                session_to_resume,
+                on_agent_message,
             )
 
         elif node.type == "branch":
             # Branch nodes run sub-workflows
             await asyncio.to_thread(
                 _execute_branch_node,
-                node_id, project, dag, node_outputs, node_trace,
-                dry_run, verbose, resume_sessions, on_agent_message,
-                checkpoint_dir, artifact_manager, checkpoint
+                node_id,
+                project,
+                dag,
+                node_outputs,
+                node_trace,
+                dry_run,
+                verbose,
+                resume_sessions,
+                on_agent_message,
+                checkpoint_dir,
+                artifact_manager,
+                checkpoint,
             )
 
         node_trace.end_time = _now_iso()
@@ -1092,7 +1111,9 @@ def _execute_branch_node(
             checkpoint.updated_at = _now_iso()
             # Save checkpoint if checkpoint_dir is available
             if checkpoint_dir:
-                checkpoint_path = Path(checkpoint_dir) if isinstance(checkpoint_dir, str) else checkpoint_dir
+                checkpoint_path = (
+                    Path(checkpoint_dir) if isinstance(checkpoint_dir, str) else checkpoint_dir
+                )
                 checkpoint.save(checkpoint_path)
 
         if not sub_result.success:
@@ -1140,7 +1161,9 @@ def _execute_branch_node(
 
         if not should_continue:
             if verbose:
-                print(f"  [{node_id}] Loop condition false, stopping after {iteration + 1} iterations")
+                print(
+                    f"  [{node_id}] Loop condition false, stopping after {iteration + 1} iterations"
+                )
             break
 
         iteration += 1

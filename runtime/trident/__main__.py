@@ -353,17 +353,19 @@ def cmd_project_graph(args) -> int:
 
             # Encode for mermaid.live URL
             # mermaid.live uses pako compression + base64
-            json_state = json.dumps({
-                "code": mermaid_code,
-                "mermaid": {"theme": "default"},
-                "autoSync": True,
-                "updateDiagram": True,
-            })
+            json_state = json.dumps(
+                {
+                    "code": mermaid_code,
+                    "mermaid": {"theme": "default"},
+                    "autoSync": True,
+                    "updateDiagram": True,
+                }
+            )
             compressed = zlib.compress(json_state.encode("utf-8"), level=9)
             encoded = base64.urlsafe_b64encode(compressed).decode("ascii")
             url = f"https://mermaid.live/edit#pako:{encoded}"
 
-            print(f"Opening diagram in browser...")
+            print("Opening diagram in browser...")
             print(f"URL: {url[:80]}...")
             webbrowser.open(url)
         else:
@@ -387,7 +389,7 @@ def cmd_project_runs(args) -> int:
         return 0
 
     # Show most recent runs (reversed, limited)
-    runs_to_show = list(reversed(manifest.runs))[:args.limit]
+    runs_to_show = list(reversed(manifest.runs))[: args.limit]
 
     print(f"Recent runs ({len(runs_to_show)} of {len(manifest.runs)}):")
     print()

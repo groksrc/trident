@@ -1,30 +1,34 @@
 """Run the Trident self-documentation workflow."""
 
+import json
 import os
 import sys
-import json
 from pathlib import Path
 
 if not os.environ.get("ANTHROPIC_API_KEY"):
     print("ERROR: ANTHROPIC_API_KEY not set")
     sys.exit(1)
 
-from trident.project import load_project
 from trident.executor import run
+from trident.project import load_project
 
 # Track agent messages
 messages = []
+
 
 def on_message(msg_type: str, content):
     """Track agent messages for analysis."""
     messages.append((msg_type, content))
     if msg_type == "assistant":
-        preview = str(content)[:200].replace('\n', ' ')
+        preview = str(content)[:200].replace("\n", " ")
         print(f"  [AGENT] {preview}...")
     elif msg_type == "tool_use":
         print(f"  [TOOL] {content.get('name', 'unknown')}")
     elif msg_type == "result":
-        print(f"  [RESULT] turns={content.get('num_turns')}, cost=${content.get('cost_usd', 0):.4f}")
+        print(
+            f"  [RESULT] turns={content.get('num_turns')}, cost=${content.get('cost_usd', 0):.4f}"
+        )
+
 
 # Paths
 project_path = Path(__file__).parent
