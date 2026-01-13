@@ -493,10 +493,74 @@ Return a JSON object with:
 IMPORTANT: score must be a number, not a string.
 ```
 
-**Tips for Structured Output:**
-- Be explicit about types in schema descriptions
-- Reinforce type requirements in the prompt body
-- The LLM response is validated against the schema
+## Structured Output (JSON Schema)
+
+When you define `output.format: json` with a `schema`, Trident enforces structured output using Claude's **tool_use** feature rather than relying on prompt instructions alone.
+
+### How It Works
+
+1. **Schema converted to tool**: Your `output.schema` is converted to a Claude tool definition
+2. **Forced tool call**: The API request includes `tool_choice: {"type": "tool", "name": "structured_output"}` which forces Claude to return data via the tool
+3. **Response validation**: The tool response is validated against your schema
+
+This is significantly more reliable than asking for JSON in the prompt text.
+
+### Example Flow
+
+Your prompt schema:
+```yaml
+output:
+  format: json
+  schema:
+    sentiment: string, The detected sentiment
+    confidence: number, Score from 0-100
+```
+
+Becomes this tool definition sent to Claude:
+```json
+{
+  "name": "structured_output",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "sentiment": {"type": "string", "description": "The detected sentiment"},
+      "confidence": {"type": "number", "description": "Score from 0-100"}
+    },
+    "required": ["sentiment", "confidence"]
+  }
+}
+```
+
+Claude responds with a `tool_use` block containing your structured data:
+```json
+{
+  "type": "tool_use",
+  "name": "structured_output",
+  "input": {"sentiment": "positive", "confidence": 95}
+}
+```
+
+### Important Notes
+
+- **Schema is required for enforcement**: If you only set `format: json` without a `schema`, no tool enforcement happens—you're relying on prompt instructions alone
+- **Supported types**: `string`, `number`, `boolean`, `array`, `object` (unknown types default to `string`)
+- **All fields are required**: Every field in your schema becomes a required field in the tool definition
+- **Prompt text still helps**: While the tool enforces structure, clear instructions in your prompt help Claude understand *what* values to return
+
+### Best Practices
+
+```yaml
+output:
+  format: json
+  schema:
+    status: string, Must be one of: success, failure, pending
+    score: number, Integer between 0 and 100
+    tags: array, List of relevant keyword strings
+```
+
+- Be explicit about allowed values and ranges in descriptions
+- Use precise type names (`number` not `int` or `float`)
+- Reinforce constraints in your prompt body for better results
 
 ## Complete Example
 

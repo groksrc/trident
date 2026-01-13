@@ -1,0 +1,34 @@
+trident: "0.1"
+name: structured-output
+description: Example demonstrating JSON structured output with schema validation
+
+defaults:
+  model: anthropic/claude-sonnet-4-20250514
+  temperature: 0.3
+  max_tokens: 1024
+
+nodes:
+  input:
+    type: input
+    schema:
+      text: string, Text to analyze
+
+  output:
+    type: output
+    format: json
+
+edges:
+  e1:
+    from: input
+    to: analyze
+    mapping:
+      text: text
+
+  e2:
+    from: analyze
+    to: output
+    mapping:
+      sentiment: sentiment
+      confidence: confidence
+      reasoning: reasoning
+      keywords: keywords
