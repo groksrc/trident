@@ -53,6 +53,30 @@ class TestConditions(unittest.TestCase):
         self.assertTrue(evaluate("true", {}))
         self.assertFalse(evaluate("false", {}))
 
+    def test_boolean_comparison(self):
+        """Test comparing context booleans to boolean literals."""
+        # Python True compared to literal true
+        self.assertTrue(evaluate("x == true", {"x": True}))
+        self.assertFalse(evaluate("x == true", {"x": False}))
+        self.assertFalse(evaluate("x == false", {"x": True}))
+        self.assertTrue(evaluate("x == false", {"x": False}))
+
+    def test_boolean_string_mismatch(self):
+        """Test that boolean and string 'true' are NOT equal."""
+        # Python True is NOT equal to string "true"
+        self.assertFalse(evaluate("x == 'true'", {"x": True}))
+        # String "true" IS equal to string 'true'
+        self.assertTrue(evaluate("x == 'true'", {"x": "true"}))
+
+    def test_truthy_boolean_shorthand(self):
+        """Test truthy evaluation of boolean fields (preferred for loops)."""
+        # Truthy evaluation - simpler syntax for loop conditions
+        self.assertTrue(evaluate("needs_refinement", {"needs_refinement": True}))
+        self.assertFalse(evaluate("needs_refinement", {"needs_refinement": False}))
+        # Not operator works too
+        self.assertFalse(evaluate("not needs_refinement", {"needs_refinement": True}))
+        self.assertTrue(evaluate("not needs_refinement", {"needs_refinement": False}))
+
     def test_null_literal(self):
         self.assertTrue(evaluate("x == null", {"x": None}))
 

@@ -300,10 +300,33 @@ The condition has access to:
 - `output` - the entire output dict
 - All output field names directly (e.g., `needs_refinement`, `quality_score`)
 
-**Common conditions:**
-- `needs_refinement == true` - boolean flag
-- `quality_score < 80` - numeric threshold
-- `status != 'complete'` - string comparison
+**Condition Syntax:**
+
+| Syntax | Description | Example |
+|--------|-------------|---------|
+| `field` | Truthy evaluation (simplest for booleans) | `needs_refinement` |
+| `not field` | Negated truthy evaluation | `not is_complete` |
+| `field == true` | Explicit boolean comparison | `needs_refinement == true` |
+| `field == false` | Explicit boolean comparison | `is_done == false` |
+| `field < N` | Numeric comparison | `quality_score < 80` |
+| `field != 'value'` | String comparison | `status != 'complete'` |
+| `field == null` | Null check | `error == null` |
+| `a and b` | Logical AND | `needs_work and has_content` |
+| `a or b` | Logical OR | `retry or fallback` |
+
+**Recommended for boolean fields:**
+```yaml
+# PREFERRED - simpler and cleaner
+loop_while: "needs_refinement"
+
+# Also works - explicit comparison
+loop_while: "needs_refinement == true"
+```
+
+**Type matching is strict:**
+- Boolean `true` ≠ String `'true'`
+- If your output schema defines `boolean`, use `== true` (not `== 'true'`)
+- If using structured output (JSON schema), types are enforced correctly
 
 #### 4. Max Iterations Must Be Set
 

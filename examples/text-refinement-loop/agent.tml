@@ -20,7 +20,7 @@ nodes:
   refine_loop:
     type: branch
     workflow: ./workflows/quality-loop.tml
-    loop_while: "needs_refinement == true"
+    loop_while: "needs_refinement"
     max_iterations: 3
 
   output:
