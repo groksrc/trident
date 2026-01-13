@@ -82,6 +82,12 @@ def main() -> int:
         "--resume",
         help='Resume from a previous run. Use run ID or "latest"',
     )
+    run_parser.add_argument(
+        "--start-from",
+        dest="start_from",
+        help="Start execution from a specific node (requires --resume). "
+        "Nodes before this point use cached outputs from the resumed run.",
+    )
 
     # project validate
     validate_parser = project_subparsers.add_parser("validate", help="Validate a Trident project")
@@ -462,6 +468,7 @@ def cmd_project_run(args) -> int:
         artifact_dir=artifact_dir,
         run_id=args.run_id,
         resume_from=resume_from,
+        start_from=args.start_from,
     )
 
     # Output

@@ -389,5 +389,66 @@ class TestJsonPromptOutput(unittest.TestCase):
         self.assertIn("DRY RUN", output["text"])
 
 
+class TestStartFrom(unittest.TestCase):
+    """Tests for --start-from functionality."""
+
+    def test_start_from_requires_resume_from(self):
+        """start_from without resume_from raises TridentError."""
+        from trident.errors import TridentError
+
+        project = Project(name="test", root=Path("."))
+        project.input_nodes["input"] = InputNode(id="input")
+        project.output_nodes["output"] = OutputNode(id="output")
+        project.edges["e1"] = Edge(id="e1", from_node="input", to_node="output")
+        project.entrypoints = ["input"]
+
+        with self.assertRaises(TridentError) as ctx:
+            run(project, dry_run=True, start_from="output")
+
+        self.assertIn("--start-from requires --resume", str(ctx.exception))
+
+    def test_start_from_invalid_node_raises(self):
+        """start_from with invalid node raises TridentError."""
+        import json
+        import tempfile
+        from trident.errors import TridentError
+        from trident.executor import Checkpoint
+
+        project = Project(name="test", root=Path("."))
+        project.input_nodes["input"] = InputNode(id="input")
+        project.output_nodes["output"] = OutputNode(id="output")
+        project.edges["e1"] = Edge(id="e1", from_node="input", to_node="output")
+        project.entrypoints = ["input"]
+
+        # Create a minimal checkpoint file
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            checkpoint_data = {
+                "run_id": "test-run",
+                "project_name": "test",
+                "started_at": "2024-01-01T00:00:00Z",
+                "updated_at": "2024-01-01T00:00:00Z",
+                "status": "completed",
+                "completed_nodes": {},
+                "pending_nodes": [],
+                "inputs": {},
+            }
+            json.dump(checkpoint_data, f)
+            checkpoint_path = f.name
+
+        try:
+            with self.assertRaises(TridentError) as ctx:
+                run(
+                    project,
+                    dry_run=True,
+                    resume_from=checkpoint_path,
+                    start_from="nonexistent_node",
+                )
+
+            self.assertIn("Start-from node not found", str(ctx.exception))
+        finally:
+            import os
+            os.unlink(checkpoint_path)
+
+
 if __name__ == "__main__":
     unittest.main()

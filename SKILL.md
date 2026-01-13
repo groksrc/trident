@@ -832,9 +832,54 @@ python -m trident project run ./my-project \
 # Resume from checkpoint
 python -m trident project run ./my-project --resume latest
 
+# Resume but start from a specific node (replay from that point)
+python -m trident project run ./my-project --resume latest --start-from refine
+
 # Visualize DAG
 python -m trident project graph ./my-project --format mermaid --open
 ```
+
+## Resuming and Replaying Workflows
+
+Trident automatically saves checkpoints after each successful node execution. This enables two use cases:
+
+### Resuming Interrupted Runs
+
+If a workflow fails or is interrupted, resume from the last checkpoint:
+
+```bash
+python -m trident project run ./my-project --resume latest
+```
+
+Completed nodes are skipped, and execution continues from where it left off.
+
+### Replaying from a Specific Node
+
+Sometimes a workflow completes but produces unexpected results. Rather than re-running everything, you can replay from a specific node:
+
+```bash
+# Re-run starting from the "refine" node
+python -m trident project run ./my-project --resume latest --start-from refine
+```
+
+**How it works:**
+- Loads the checkpoint from the previous run
+- Keeps cached outputs only for nodes that are *ancestors* of the start-from node
+- Re-executes the start-from node and all downstream nodes
+
+**Example:**
+```
+input → process → refine → output
+```
+
+With `--start-from refine`:
+- `input` and `process` outputs are reused from cache
+- `refine` and `output` are re-executed
+
+**Use cases:**
+- Prompt iteration: Tweak a prompt and re-run only that node and downstream
+- Debugging: Isolate which node is producing incorrect output
+- Cost savings: Avoid re-running expensive LLM calls for nodes that worked correctly
 
 ## References
 

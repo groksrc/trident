@@ -11,7 +11,7 @@ from uuid import uuid4
 
 from .artifacts import ArtifactManager, RunMetadata, get_artifact_manager
 from .conditions import evaluate
-from .dag import DAG, build_dag, validate_edge_mappings
+from .dag import DAG, build_dag, get_ancestors, validate_edge_mappings
 from .errors import BranchError, NodeExecutionError, SchemaValidationError, TridentError
 from .parser import PromptNode, parse_prompt_file
 from .project import Edge, Project
@@ -371,6 +371,7 @@ def run(
     resume_from: str | Path | None = None,
     artifact_dir: str | Path | None = None,
     run_id: str | None = None,
+    start_from: str | None = None,
 ) -> ExecutionResult:
     """Execute a Trident project.
 
@@ -386,6 +387,8 @@ def run(
         resume_from: Checkpoint path or run_id to resume from
         artifact_dir: Directory for all artifacts (default: project_root/.trident)
         run_id: Custom run ID (default: auto-generated UUID)
+        start_from: Node ID to start execution from (requires resume_from).
+            Only ancestors of this node will be treated as completed.
 
     Returns:
         ExecutionResult with outputs and trace. Always returns, even on failure.
@@ -411,6 +414,10 @@ def run(
             for warning in validation.warnings:
                 print(f"  - {warning.message}", file=sys.stderr)
             print(file=sys.stderr)
+
+    # Validate start_from requires resume_from
+    if start_from and not resume_from:
+        raise TridentError("--start-from requires --resume to specify which run to use cached outputs from")
 
     # Determine entrypoint - fail early if none
     if entrypoint is None:
@@ -443,7 +450,27 @@ def run(
         checkpoint.status = "running"
         checkpoint.updated_at = _now_iso()
 
-        if verbose:
+        # Handle start_from: filter completed_nodes to only ancestors
+        if start_from:
+            if start_from not in dag.nodes:
+                raise TridentError(f"Start-from node not found in DAG: {start_from}")
+
+            ancestors = get_ancestors(dag, start_from)
+            original_count = len(checkpoint.completed_nodes)
+
+            # Keep only ancestors of start_from node
+            filtered_nodes = {
+                node_id: node_data
+                for node_id, node_data in checkpoint.completed_nodes.items()
+                if node_id in ancestors
+            }
+            checkpoint.completed_nodes = filtered_nodes
+
+            if verbose:
+                print(f"Starting from node: {start_from}")
+                print(f"  Keeping {len(filtered_nodes)} of {original_count} cached nodes")
+                print(f"  Re-executing: {start_from} and {original_count - len(filtered_nodes) - 1} downstream nodes")
+        elif verbose:
             completed = len(checkpoint.completed_nodes)
             print(f"Resuming from checkpoint: {checkpoint.run_id}")
             print(f"  Completed nodes: {completed}")

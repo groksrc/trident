@@ -584,6 +584,31 @@ def get_downstream_nodes(dag: DAG, node_id: str) -> list[str]:
     return [edge.to_node for edge in node.outgoing_edges]
 
 
+def get_ancestors(dag: DAG, node_id: str) -> set[str]:
+    """Get all ancestor nodes (transitive upstream) of a given node.
+
+    This recursively finds all nodes that feed into the given node,
+    directly or indirectly. The node itself is NOT included.
+
+    Args:
+        dag: The DAG to search
+        node_id: The node to find ancestors for
+
+    Returns:
+        Set of node IDs that are ancestors of the given node
+    """
+    ancestors: set[str] = set()
+    to_visit = get_upstream_nodes(dag, node_id)
+
+    while to_visit:
+        current = to_visit.pop()
+        if current not in ancestors:
+            ancestors.add(current)
+            to_visit.extend(get_upstream_nodes(dag, current))
+
+    return ancestors
+
+
 def _get_node_symbol(node_type: str) -> str:
     """Get the symbol for a node type.
 

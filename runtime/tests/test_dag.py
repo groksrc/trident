@@ -3,7 +3,7 @@
 import unittest
 from pathlib import Path
 
-from trident.dag import DAGError, _get_node_symbol, build_dag, visualize_dag, visualize_dag_mermaid
+from trident.dag import DAGError, _get_node_symbol, build_dag, get_ancestors, visualize_dag, visualize_dag_mermaid
 from trident.parser import BranchNode, PromptNode
 from trident.project import Edge, InputNode, OutputNode, Project
 
@@ -224,6 +224,52 @@ class TestDAG(unittest.TestCase):
 
         td_mermaid = visualize_dag_mermaid(dag, direction="TD")
         self.assertIn("flowchart TD", td_mermaid)
+
+    def test_get_ancestors_linear(self):
+        """Test get_ancestors on a linear DAG: a -> b -> c."""
+        project = self._make_project([("a", "b"), ("b", "c")], prompts=["b"])
+        dag = build_dag(project)
+
+        # c's ancestors are a and b
+        ancestors_of_c = get_ancestors(dag, "c")
+        self.assertEqual(ancestors_of_c, {"a", "b"})
+
+        # b's ancestors are just a
+        ancestors_of_b = get_ancestors(dag, "b")
+        self.assertEqual(ancestors_of_b, {"a"})
+
+        # a has no ancestors
+        ancestors_of_a = get_ancestors(dag, "a")
+        self.assertEqual(ancestors_of_a, set())
+
+    def test_get_ancestors_diamond(self):
+        """Test get_ancestors on a diamond DAG: input -> [a, b] -> output."""
+        project = self._make_project(
+            [
+                ("input", "a"),
+                ("input", "b"),
+                ("a", "output"),
+                ("b", "output"),
+            ],
+            prompts=["a", "b"],
+        )
+        dag = build_dag(project)
+
+        # output's ancestors are input, a, and b
+        ancestors_of_output = get_ancestors(dag, "output")
+        self.assertEqual(ancestors_of_output, {"input", "a", "b"})
+
+        # a's ancestors are just input
+        ancestors_of_a = get_ancestors(dag, "a")
+        self.assertEqual(ancestors_of_a, {"input"})
+
+    def test_get_ancestors_nonexistent_node(self):
+        """Test get_ancestors with nonexistent node returns empty set."""
+        project = self._make_project([("a", "b")], prompts=["b"])
+        dag = build_dag(project)
+
+        ancestors = get_ancestors(dag, "nonexistent")
+        self.assertEqual(ancestors, set())
 
 
 class TestTypesCompatible(unittest.TestCase):
