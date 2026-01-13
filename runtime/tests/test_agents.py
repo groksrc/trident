@@ -520,7 +520,9 @@ id: reader
 output:
   format: json
   schema:
-    result: string, What was found
+    result:
+      type: string
+      description: What was found
 ---
 Use Glob to list files in the current directory. Return {"result": "found N files"}.
 """)

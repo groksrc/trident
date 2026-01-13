@@ -189,11 +189,16 @@ def load_project(path: str | Path) -> Project:
                 input_node = InputNode(id=node_id)
                 if "schema" in node_spec:
                     for fname, fspec in node_spec["schema"].items():
-                        if isinstance(fspec, str) and "," in fspec:
-                            ftype, fdesc = fspec.split(",", 1)
-                            input_node.schema[fname] = (ftype.strip(), fdesc.strip())
+                        if isinstance(fspec, dict):
+                            # Verbose format: {type: string, description: "..."}
+                            ftype = fspec.get("type", "string")
+                            fdesc = fspec.get("description", "")
+                            input_node.schema[fname] = (ftype, fdesc)
                         else:
-                            input_node.schema[fname] = (str(fspec), "")
+                            raise ValidationError(
+                                f"Invalid schema field '{fname}' in node '{node_id}': "
+                                f"expected dict with 'type' and 'description', got {type(fspec).__name__}"
+                            )
                 project.input_nodes[node_id] = input_node
             elif node_type == "output":
                 project.output_nodes[node_id] = OutputNode(

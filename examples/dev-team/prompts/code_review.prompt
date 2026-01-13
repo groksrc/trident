@@ -28,11 +28,21 @@ input:
 output:
   format: json
   schema:
-    approved: boolean, Whether the patches are approved for applying
-    issues: array, List of issues found (empty if approved)
-    severity: string, Overall severity - none/minor/major/critical
-    suggestions: array, Suggestions for improvement (can be empty)
-    revised_patches: array, Fixed patches if issues were found (same format as input)
+    approved:
+      type: boolean
+      description: Whether the patches are approved for applying
+    issues:
+      type: array
+      description: List of issues found (empty if approved)
+    severity:
+      type: string
+      description: Overall severity - none/minor/major/critical
+    suggestions:
+      type: array
+      description: Suggestions for improvement (can be empty)
+    revised_patches:
+      type: array
+      description: Fixed patches if issues were found (same format as input)
 ---
 You are a senior code reviewer. Review the proposed patches before they get applied to disk.
 

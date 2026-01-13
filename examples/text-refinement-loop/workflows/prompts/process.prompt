@@ -12,9 +12,15 @@ input:
 output:
   format: json
   schema:
-    text: string, The refined text (or original if quality is good)
-    quality_score: number, Quality score from 0-100
-    needs_refinement: boolean, True if more refinement is needed
+    text:
+      type: string
+      description: The refined text (or original if quality is good)
+    quality_score:
+      type: number
+      description: Quality score from 0-100
+    needs_refinement:
+      type: boolean
+      description: True if more refinement is needed
 ---
 You are a text quality processor. Evaluate the following text and improve it if needed.
 

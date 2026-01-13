@@ -11,7 +11,9 @@ nodes:
   input:
     type: input
     schema:
-      text: string, Text to analyze
+      text:
+        type: string
+        description: Text to analyze
 
   output:
     type: output

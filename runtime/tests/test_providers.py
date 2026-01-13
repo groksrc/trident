@@ -286,9 +286,15 @@ name: Sentiment Analyzer
 output:
   format: json
   schema:
-    sentiment: string, The detected sentiment
-    confidence: number, Confidence score 0-100
-    keywords: array, Key terms found
+    sentiment:
+      type: string
+      description: The detected sentiment
+    confidence:
+      type: number
+      description: Confidence score 0-100
+    keywords:
+      type: array
+      description: Key terms found
 ---
 Analyze the sentiment of: {{text}}
 
@@ -331,8 +337,12 @@ id: classifier
 output:
   format: json
   schema:
-    category: string, The classification category
-    score: number, Confidence score
+    category:
+      type: string
+      description: The classification category
+    score:
+      type: number
+      description: Confidence score
 ---
 Classify: {{input}}
 """

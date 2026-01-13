@@ -64,8 +64,12 @@ id: classify
 output:
   format: json
   schema:
-    intent: string, The classified intent
-    confidence: number, Confidence score
+    intent:
+      type: string
+      description: The classified intent
+    confidence:
+      type: number
+      description: Confidence score
 ---
 Classify this.
 """

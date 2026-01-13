@@ -203,7 +203,9 @@ nodes:
   input:
     type: input
     schema:
-      text: string, Input text to process
+      text:
+        type: string
+        description: Input text to process
 
   output:
     type: output
@@ -242,8 +244,12 @@ input:
 output:
   format: json
   schema:
-    result: string, The processed result
-    length: number, Length of the input
+    result:
+      type: string
+      description: The processed result
+    length:
+      type: number
+      description: Length of the input
 ---
 You are a helpful assistant. Process the following input and return a result.
 

@@ -24,8 +24,12 @@ input:
 output:
   format: json
   schema:
-    summary: string, Brief summary of changes made
-    code_changes: array, Files to create or update with full content
+    summary:
+      type: string
+      description: Brief summary of changes made
+    code_changes:
+      type: array
+      description: Files to create or update with full content
 ---
 You are implementing a Python CLI todo application.
 

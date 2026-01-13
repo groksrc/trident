@@ -45,10 +45,18 @@ The prompt file (`prompts/analyze.prompt`) defines the output schema:
 output:
   format: json
   schema:
-    sentiment: string, One of positive, negative, or neutral
-    confidence: number, Confidence score from 0 to 100
-    reasoning: string, Brief explanation of the sentiment classification
-    keywords: array, Key words or phrases that influenced the classification
+    sentiment:
+      type: string
+      description: One of positive, negative, or neutral
+    confidence:
+      type: number
+      description: Confidence score from 0 to 100
+    reasoning:
+      type: string
+      description: Brief explanation of the sentiment classification
+    keywords:
+      type: array
+      description: Key words or phrases that influenced the classification
 ```
 
 This schema is converted to a Claude tool with `tool_choice: {"type": "tool", "name": "structured_output"}` to ensure compliant responses.

@@ -15,8 +15,12 @@ nodes:
   input:
     type: input
     schema:
-      feature: string, The feature to implement (e.g. "project setup", "add todo", "toggle complete")
-      iteration: integer, Current iteration number (starts at 1)
+      feature:
+        type: string
+        description: The feature to implement (e.g. "project setup", "add todo", "toggle complete")
+      iteration:
+        type: integer
+        description: Current iteration number (starts at 1)
 
   output:
     type: output

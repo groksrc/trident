@@ -6,8 +6,12 @@ description: Analyze the Trident codebase to extract documentation-relevant info
 output:
   format: json
   schema:
-    analysis: object, Structured codebase analysis with overview core_modules public_api node_types examples
-    output_dir: string, Output directory for docs
+    analysis:
+      type: object
+      description: Structured codebase analysis with overview core_modules public_api node_types examples
+    output_dir:
+      type: string
+      description: Output directory for docs
 ---
 
 You are a senior software architect analyzing a codebase for documentation.

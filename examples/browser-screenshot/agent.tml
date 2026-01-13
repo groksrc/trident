@@ -1,0 +1,57 @@
+trident: "0.1"
+name: browser-screenshot
+description: Navigate to a URL and capture a screenshot using Chrome DevTools MCP
+version: "1.0.0"
+
+defaults:
+  model: anthropic/claude-sonnet-4-20250514
+  temperature: 0.2
+  max_tokens: 4096
+
+entrypoints:
+  - input
+
+nodes:
+  input:
+    type: input
+    schema:
+      url:
+        type: string
+        description: The URL to navigate to and capture
+
+  browser:
+    type: agent
+    prompt: prompts/browser.prompt
+    mcp_servers:
+      chrome:
+        command: npx
+        args:
+          - chrome-devtools-mcp
+          - --headless
+          - --isolated
+    max_turns: 15
+    permission_mode: bypassPermissions
+
+  output:
+    type: output
+    format: json
+
+edges:
+  e1:
+    from: input
+    to: browser
+    mapping:
+      target_url: url
+
+  e2:
+    from: browser
+    to: output
+    mapping:
+      screenshot_path: screenshot_path
+      page_title: page_title
+      status: status
+
+env:
+  ANTHROPIC_API_KEY:
+    description: Anthropic API key for Claude
+    required: true

@@ -28,12 +28,24 @@ input:
 output:
   format: json
   schema:
-    approach: string, High-level description of the approach
-    changes: array, List of specific changes to make
-    new_files: array, Any new files to create (empty array if none)
-    modified_files: array, File paths to modify (JUST the path like trident/executor.py)
-    test_strategy: string, How to test this change
-    risks: array, Potential issues or edge cases
+    approach:
+      type: string
+      description: High-level description of the approach
+    changes:
+      type: array
+      description: List of specific changes to make
+    new_files:
+      type: array
+      description: Any new files to create (empty array if none)
+    modified_files:
+      type: array
+      description: File paths to modify (JUST the path like trident/executor.py)
+    test_strategy:
+      type: string
+      description: How to test this change
+    risks:
+      type: array
+      description: Potential issues or edge cases
 ---
 You are a software architect. Design a technical implementation for this feature.
 

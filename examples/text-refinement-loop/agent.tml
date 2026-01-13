@@ -15,7 +15,9 @@ nodes:
   input:
     type: input
     schema:
-      text: string, Text to refine
+      text:
+        type: string
+        description: Text to refine
 
   refine_loop:
     type: branch

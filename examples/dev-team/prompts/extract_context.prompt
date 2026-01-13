@@ -16,9 +16,15 @@ input:
 output:
   format: json
   schema:
-    search_terms: array, Keywords to search for in the codebase (class names, function names, module names)
-    likely_files: array, File paths that are likely relevant based on the request
-    file_patterns: array, Glob patterns to find related files (e.g. "trident/*.py")
+    search_terms:
+      type: array
+      description: Keywords to search for in the codebase (class names, function names, module names)
+    likely_files:
+      type: array
+      description: File paths that are likely relevant based on the request
+    file_patterns:
+      type: array
+      description: Glob patterns to find related files (e.g. "trident/*.py")
 ---
 You are a code analyst. Extract actionable search context from this feature request.
 

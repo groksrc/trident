@@ -20,10 +20,18 @@ input:
 output:
   format: json
   schema:
-    feature: string, The feature being implemented
-    approach: string, Technical approach
-    changes: array, List of specific changes to make
-    files_to_modify: array, Files that need to be created or modified
+    feature:
+      type: string
+      description: The feature being implemented
+    approach:
+      type: string
+      description: Technical approach
+    changes:
+      type: array
+      description: List of specific changes to make
+    files_to_modify:
+      type: array
+      description: Files that need to be created or modified
 ---
 You are designing a Python CLI todo application. This is iteration {{iteration}}.
 

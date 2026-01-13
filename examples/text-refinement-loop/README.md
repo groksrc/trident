@@ -166,7 +166,9 @@ Each iteration saves:
 **Change quality threshold:**
 Edit `workflows/prompts/process.prompt`:
 ```yaml
-needs_refinement: boolean, True if score < 90  # Increase threshold
+needs_refinement:
+  type: boolean
+  description: True if score < 90  # Increase threshold
 ```
 
 **Add more iteration data:**

@@ -74,8 +74,12 @@ nodes:
   input:
     type: input
     schema:
-      date: string, Date in YYYY-MM-DD format
-      limit: number, Max results
+      date:
+        type: string
+        description: Date in YYYY-MM-DD format
+      limit:
+        type: number
+        description: Max results
 
 edges:
   e1:
@@ -271,7 +275,9 @@ nodes:
   loop_input:
     type: input
     schema:
-      text: string, Text to process
+      text:
+        type: string
+        description: Text to process
 
   loop_output:
     type: output
@@ -373,7 +379,9 @@ nodes:
   input:
     type: input
     schema:
-      text: string, Text to refine
+      text:
+        type: string
+        description: Text to refine
 
   refine_loop:
     type: branch
@@ -405,7 +413,9 @@ nodes:
   loop_input:
     type: input
     schema:
-      text: string, Text to evaluate and refine
+      text:
+        type: string
+        description: Text to evaluate and refine
 
   process:
     type: prompt
@@ -443,9 +453,15 @@ input:
 output:
   format: json
   schema:
-    text: string, The refined text
-    quality_score: number, Quality score 0-100
-    needs_refinement: boolean, True if score < 85
+    text:
+      type: string
+      description: The refined text
+    quality_score:
+      type: number
+      description: Quality score 0-100
+    needs_refinement:
+      type: boolean
+      description: True if score < 85
 ---
 Evaluate and refine this text:
 
@@ -498,9 +514,15 @@ input:
 output:
   format: json
   schema:
-    status: string, One of "normal", "warning", "critical"
-    score: number, Quality score between 0-100
-    insights: array, List of insight strings
+    status:
+      type: string
+      description: One of "normal", "warning", "critical"
+    score:
+      type: number
+      description: Quality score between 0-100
+    insights:
+      type: array
+      description: List of insight strings
 ---
 You are a data analyst. Analyze the following data:
 
@@ -535,8 +557,12 @@ Your prompt schema:
 output:
   format: json
   schema:
-    sentiment: string, The detected sentiment
-    confidence: number, Score from 0-100
+    sentiment:
+      type: string
+      description: The detected sentiment
+    confidence:
+      type: number
+      description: Score from 0-100
 ```
 
 Becomes this tool definition sent to Claude:
@@ -576,9 +602,15 @@ Claude responds with a `tool_use` block containing your structured data:
 output:
   format: json
   schema:
-    status: string, Must be one of: success, failure, pending
-    score: number, Integer between 0 and 100
-    tags: array, List of relevant keyword strings
+    status:
+      type: string
+      description: Must be one of: success, failure, pending
+    score:
+      type: number
+      description: Integer between 0 and 100
+    tags:
+      type: array
+      description: List of relevant keyword strings
 ```
 
 - Be explicit about allowed values and ranges in descriptions
@@ -604,7 +636,9 @@ nodes:
   input:
     type: input
     schema:
-      date: string, Date in YYYY-MM-DD format (optional)
+      date:
+        type: string
+        description: Date in YYYY-MM-DD format (optional)
 
   output:
     type: output

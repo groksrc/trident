@@ -100,8 +100,12 @@ id: tester
 output:
   format: json
   schema:
-    status: string, Test status
-    passed: array, Passed tests
+    status:
+      type: string
+      description: Test status
+    passed:
+      type: array
+      description: Passed tests
 ---
 Test the app at {{app_url}}.
 """)

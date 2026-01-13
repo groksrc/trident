@@ -112,14 +112,6 @@ def parse_yaml_simple(text: str) -> dict[str, Any]:
     return result if result is not None else {}
 
 
-def parse_schema_field(value: str) -> tuple[str, str]:
-    """Parse 'type, description' schema syntax."""
-    if "," in value:
-        type_part, _, desc = value.partition(",")
-        return type_part.strip(), desc.strip()
-    return value.strip(), ""
-
-
 def parse_prompt_file(path: Path) -> PromptNode:
     """Parse a .prompt file into a PromptNode.
 
@@ -186,9 +178,15 @@ def parse_prompt_file(path: Path) -> PromptNode:
         )
         if "schema" in output_spec and isinstance(output_spec["schema"], dict):
             for fname, fspec in output_spec["schema"].items():
-                if isinstance(fspec, str):
-                    node.output.fields[fname] = parse_schema_field(fspec)
+                if isinstance(fspec, dict):
+                    # Verbose format: {type: string, description: "..."}
+                    field_type = fspec.get("type", "string")
+                    field_desc = fspec.get("description", "")
+                    node.output.fields[fname] = (field_type, field_desc)
                 else:
-                    node.output.fields[fname] = (str(fspec), "")
+                    raise ParseError(
+                        f"Invalid schema field '{fname}' in {path}: "
+                        f"expected dict with 'type' and 'description', got {type(fspec).__name__}"
+                    )
 
     return node

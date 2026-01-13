@@ -15,7 +15,9 @@ nodes:
   input:
     type: input
     schema:
-      feature_request: string, The feature request or bug to implement
+      feature_request:
+        type: string
+        description: The feature request or bug to implement
 
   output:
     type: output

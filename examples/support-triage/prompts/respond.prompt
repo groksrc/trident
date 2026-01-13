@@ -20,9 +20,15 @@ input:
 output:
   format: json
   schema:
-    response: string, The support response to send to customer
-    escalate: boolean, Whether this needs human review
-    suggested_tags: array, Tags for categorization
+    response:
+      type: string
+      description: The support response to send to customer
+    escalate:
+      type: boolean
+      description: Whether this needs human review
+    suggested_tags:
+      type: array
+      description: Tags for categorization
 ---
 You are a helpful customer support agent. Generate a response to the following ticket.
 

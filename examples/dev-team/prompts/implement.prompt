@@ -24,8 +24,12 @@ input:
 output:
   format: json
   schema:
-    summary: string, Brief summary of changes made
-    patches: array, Unified diff patches for each file
+    summary:
+      type: string
+      description: Brief summary of changes made
+    patches:
+      type: array
+      description: Unified diff patches for each file
 ---
 You are an expert Python developer. Implement the designed changes using unified diff format.
 

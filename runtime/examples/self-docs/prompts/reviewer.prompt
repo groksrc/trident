@@ -6,9 +6,15 @@ description: Review and critique the generated documentation
 output:
   format: json
   schema:
-    review: string, Detailed review of the documentation
-    quality_score: number, Overall quality score 1-10
-    suggestions: array, List of improvement suggestions
+    review:
+      type: string
+      description: Detailed review of the documentation
+    quality_score:
+      type: number
+      description: Overall quality score 1-10
+    suggestions:
+      type: array
+      description: List of improvement suggestions
 ---
 
 You are a senior technical editor reviewing documentation for accuracy, completeness, and clarity.

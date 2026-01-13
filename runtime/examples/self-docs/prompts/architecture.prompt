@@ -6,8 +6,12 @@ description: Write comprehensive architecture documentation
 output:
   format: json
   schema:
-    doc_path: string, Path to the written documentation file
-    summary: string, Brief summary of what was documented
+    doc_path:
+      type: string
+      description: Path to the written documentation file
+    summary:
+      type: string
+      description: Brief summary of what was documented
 ---
 
 You are a technical writer creating architecture documentation for Trident.

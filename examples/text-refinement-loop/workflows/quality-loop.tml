@@ -15,7 +15,9 @@ nodes:
   loop_input:
     type: input
     schema:
-      text: string, Text to evaluate and refine
+      text:
+        type: string
+        description: Text to evaluate and refine
 
   process:
     type: prompt

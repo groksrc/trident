@@ -12,9 +12,15 @@ input:
 output:
   format: json
   schema:
-    intent: string, One of support/billing/spam/other
-    confidence: number, 0-1 confidence score
-    reasoning: string, Brief explanation of classification
+    intent:
+      type: string
+      description: One of support/billing/spam/other
+    confidence:
+      type: number
+      description: 0-1 confidence score
+    reasoning:
+      type: string
+      description: Brief explanation of classification
 ---
 You are a support ticket classifier. Analyze the following ticket and determine its intent.
 
