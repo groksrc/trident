@@ -37,7 +37,7 @@ from .executor import (
 )
 from .project import Project, load_project
 
-__version__ = "0.2.0"
+__version__ = "0.9.1"
 
 __all__ = [
     # Project loading

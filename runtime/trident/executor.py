@@ -439,9 +439,10 @@ def run(
         # Load checkpoint to resume from
         resume_path = Path(resume_from) if isinstance(resume_from, str) else resume_from
 
-        # If it's just a run_id (not a full path), look in checkpoint_dir
-        if not resume_path.exists() and checkpoint_path_obj:
-            resume_path = checkpoint_path_obj / f"{resume_from}.json"
+        # If it's just a run_id (not a full path), look in artifact_dir
+        if not resume_path.exists() and artifact_dir:
+            artifact_path = Path(artifact_dir) if isinstance(artifact_dir, str) else artifact_dir
+            resume_path = artifact_path / "runs" / resume_from / "checkpoint.json"
 
         if not resume_path.exists():
             raise TridentError(f"Checkpoint not found: {resume_from}")
@@ -635,7 +636,7 @@ def run(
                     node_outputs[result.node_id] = result.output
 
                     # Save checkpoint after successful node
-                    if checkpoint and checkpoint_path_obj:
+                    if checkpoint:
                         checkpoint.completed_nodes[result.node_id] = CheckpointNodeData(
                             outputs=result.node_trace.output,
                             completed_at=result.node_trace.end_time,
@@ -648,7 +649,10 @@ def run(
                         if result.node_trace.cost_usd:
                             checkpoint.total_cost_usd += result.node_trace.cost_usd
                         checkpoint.updated_at = _now_iso()
-                        checkpoint.save(checkpoint_path_obj)
+                        if artifact_manager:
+                            artifact_manager.save_checkpoint(checkpoint)
+                        elif checkpoint_path_obj:
+                            checkpoint.save(checkpoint_path_obj)
 
     # Run the async execution
     asyncio.run(_execute_levels())
@@ -669,10 +673,11 @@ def run(
     trace.end_time = _now_iso()
 
     # Final checkpoint update
-    if checkpoint and checkpoint_path_obj:
+    if checkpoint:
         checkpoint.status = "completed" if not execution_error else "failed"
         checkpoint.updated_at = _now_iso()
-        checkpoint.save(checkpoint_path_obj)
+        if checkpoint_path_obj:
+            checkpoint.save(checkpoint_path_obj)
 
     # Save artifacts if artifact manager is active
     if artifact_manager:
