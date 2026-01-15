@@ -30,7 +30,7 @@ class DAGNode:
     """Node in the execution DAG."""
 
     id: str
-    type: str  # "prompt", "input", "output", "tool", "agent", "branch"
+    type: str  # "prompt", "input", "output", "tool", "agent", "branch", "trigger"
     incoming_edges: list[Edge] = field(default_factory=list)
     outgoing_edges: list[Edge] = field(default_factory=list)
 
@@ -99,6 +99,10 @@ def get_node_output_fields(project: Project, node_id: str, node_type: str) -> se
         # Branch nodes pass through their sub-workflow output
         return {"output", "text"}
 
+    elif node_type == "trigger":
+        # Trigger nodes output status and optionally downstream outputs (wait mode)
+        return {"triggered", "status", "output"}
+
     elif node_type == "output":
         # Output nodes don't have downstream edges
         return set()
@@ -150,6 +154,10 @@ def get_node_input_fields(project: Project, node_id: str, node_type: str) -> set
 
     elif node_type == "branch":
         # Branch inputs depend on sub-workflow
+        return set()
+
+    elif node_type == "trigger":
+        # Trigger inputs depend on downstream workflow
         return set()
 
     return set()
@@ -213,6 +221,9 @@ def get_node_output_types(project: Project, node_id: str, node_type: str) -> dic
     elif node_type == "branch":
         return {"output": None, "text": "string"}
 
+    elif node_type == "trigger":
+        return {"triggered": "boolean", "status": "string", "output": None}
+
     return {}
 
 
@@ -253,7 +264,7 @@ def get_node_input_types(project: Project, node_id: str, node_type: str) -> dict
                 return {p: None for p in params}  # Type unknown
         return {}
 
-    # output, input, branch nodes accept any types
+    # output, input, branch, trigger nodes accept any types
     return {}
 
 
@@ -508,6 +519,9 @@ def build_dag(project: Project, validate_mappings_flag: bool = False) -> DAG:
     for node_id in project.branches:
         nodes[node_id] = DAGNode(id=node_id, type="branch")
 
+    for node_id in project.triggers:
+        nodes[node_id] = DAGNode(id=node_id, type="trigger")
+
     # Wire up edges
     for edge in project.edges.values():
         if edge.from_node not in nodes:
@@ -625,6 +639,7 @@ def _get_node_symbol(node_type: str) -> str:
         "output": "[O]",
         "agent": "[A]",
         "branch": "[B]",
+        "trigger": "[R]",  # R for tRigger (T is taken by Tool)
     }
     return symbols.get(node_type, "[?]")
 
@@ -666,7 +681,7 @@ def visualize_dag(dag: DAG) -> str:
             lines.append("")
 
     lines.append("")
-    lines.append("Legend: [I] Input, [P] Prompt, [T] Tool, [A] Agent, [B] Branch, [O] Output")
+    lines.append("Legend: [I] Input, [P] Prompt, [T] Tool, [A] Agent, [B] Branch, [R] Trigger, [O] Output")
 
     return "\n".join(lines)
 
@@ -706,6 +721,7 @@ def visualize_dag_mermaid(dag: DAG, direction: str = "TD") -> str:
         "tool": ("{{", "}}"),  # Hexagon for tool
         "agent": ("[[", "]]"),  # Subroutine for agent
         "branch": ("{", "}"),  # Rhombus for branch/decision
+        "trigger": ("((", "))"),  # Circle for trigger
     }
 
     # Define nodes with shapes

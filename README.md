@@ -195,6 +195,13 @@ python -m trident project run [path] [options]
   --trace                    # Show execution trace
   --resume ID|latest         # Resume from checkpoint
 
+# Orchestration options
+  --input-from PATH          # Load inputs from file, alias:name, or run:id
+  --emit-signal              # Emit orchestration signals (started/completed/failed/ready)
+  --publish-to PATH          # Publish outputs to a well-known path
+  --wait-for SIGNAL          # Wait for signal file(s) before starting
+  --timeout SECONDS          # Timeout for --wait-for (default: 300)
+
 # DAG visualization
 python -m trident project graph --format mermaid --open  # Open in browser
 ```
@@ -289,6 +296,79 @@ for node in result.trace.nodes:
 - **Artifacts**: Automatic persistence of runs, traces, and outputs
 - **Dry Run**: Test pipelines without LLM calls
 - **Mermaid Visualization**: Generate interactive DAG diagrams
+- **Workflow Orchestration**: Chain workflows with signals, wait conditions, and shared outputs
+
+## Workflow Orchestration
+
+Trident supports file-based workflow orchestration for chaining workflows, scheduled execution, and event-driven triggers.
+
+### Signal Files
+
+Workflows can emit signal files to indicate state transitions:
+
+```bash
+# Emit signals when running
+python -m trident project run ./my-workflow --emit-signal
+```
+
+Creates signal files in `.trident/signals/`:
+- `{workflow}.started` - Workflow began execution
+- `{workflow}.completed` - Workflow finished successfully
+- `{workflow}.failed` - Workflow encountered an error
+- `{workflow}.ready` - Outputs are available for downstream workflows
+
+### Input Chaining
+
+Load inputs from previous workflow outputs:
+
+```bash
+# From a file path
+python -m trident project run --input-from ../upstream/.trident/outputs/latest.json
+
+# From an alias
+python -m trident project run --input-from alias:upstream-workflow
+
+# From a specific run
+python -m trident project run --input-from run:abc123
+```
+
+### Wait Conditions
+
+Block execution until signals are present:
+
+```bash
+# Wait for upstream workflow to complete
+python -m trident project run ./downstream \
+  --wait-for ../upstream/.trident/signals/upstream.ready \
+  --timeout 600
+
+# Wait for multiple signals
+python -m trident project run ./final \
+  --wait-for ./step1/.trident/signals/step1.ready \
+  --wait-for ./step2/.trident/signals/step2.ready
+```
+
+### Publishing Outputs
+
+Publish outputs to well-known paths for downstream consumption:
+
+```bash
+python -m trident project run ./my-workflow --publish-to ./outputs/latest.json
+```
+
+### Manifest Configuration
+
+Configure orchestration in the manifest:
+
+```yaml
+orchestration:
+  publish:
+    path: .trident/outputs/latest.json
+    alias: my-workflow
+
+  signals:
+    enabled: true
+```
 
 ## Examples
 

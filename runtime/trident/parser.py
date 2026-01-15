@@ -103,6 +103,32 @@ class BranchNode:
     max_iterations: int = 10  # Safety limit to prevent infinite loops
 
 
+@dataclass
+class TriggerNode:
+    """Trigger node definition - fires downstream workflows.
+
+    A trigger node can:
+    - Fire-and-forget: Start downstream workflow without waiting
+    - Wait: Block until downstream workflow completes
+    - Pass outputs to downstream workflow as inputs
+
+    Example YAML:
+        - id: trigger_analysis
+          type: trigger
+          workflow: ./analysis/agent.tml
+          mode: fire-and-forget  # or "wait"
+          pass_outputs: true
+          emit_signal: true
+    """
+
+    id: str
+    workflow_path: str  # Path to downstream workflow file
+    mode: str = "fire-and-forget"  # "fire-and-forget" or "wait"
+    pass_outputs: bool = True  # Whether to pass upstream outputs as inputs
+    emit_signal: bool = True  # Whether to emit signal when triggered
+    condition: str | None = None  # Pre-execution condition (skip if false)
+
+
 def parse_yaml_simple(text: str) -> dict[str, Any]:
     """Parse YAML text into a dictionary.
 

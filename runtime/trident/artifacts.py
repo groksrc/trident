@@ -6,8 +6,10 @@ Provides centralized storage for all runtime artifacts:
 - Outputs (final results)
 - Metadata (run information)
 - Branch iteration state (for looping workflows)
+- Signals (workflow orchestration state)
 
 All artifacts are stored in `.trident/runs/{run_id}/` by default.
+Signals are stored in `.trident/signals/` for cross-run coordination.
 """
 
 import json
@@ -25,10 +27,13 @@ class ArtifactConfig:
     """Configuration for artifact persistence."""
 
     base_dir: Path  # Usually project_root / ".trident"
+    project_root: Path | None = None  # Root directory of project (for relative paths)
     persist_trace: bool = True
     persist_outputs: bool = True
     persist_checkpoint: bool = True
     persist_branch_state: bool = True
+    emit_signals: bool = False  # Whether to emit orchestration signals
+    orchestration: "OrchestrationConfig | None" = None
 
 
 @dataclass
@@ -164,6 +169,67 @@ class BranchIterationState:
         return cls(**data)
 
 
+@dataclass
+class Signal:
+    """Workflow signal for orchestration.
+
+    Signals indicate workflow state transitions and enable coordination
+    between independent workflow runs.
+    """
+
+    signal_type: str  # "started", "completed", "failed", "ready"
+    run_id: str
+    timestamp: str
+    workflow: str
+    outputs_path: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def save(self, signals_dir: Path) -> Path:
+        """Save signal to disk."""
+        signals_dir.mkdir(parents=True, exist_ok=True)
+        path = signals_dir / f"{self.workflow}.{self.signal_type}"
+        path.write_text(json.dumps(asdict(self), indent=2))
+        return path
+
+    @classmethod
+    def load(cls, path: Path) -> "Signal":
+        """Load signal from disk."""
+        data = json.loads(path.read_text())
+        return cls(**data)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to JSON-serializable dict."""
+        return asdict(self)
+
+
+@dataclass
+class OrchestrationConfig:
+    """Configuration for workflow orchestration.
+
+    Parsed from the 'orchestration:' section of the manifest.
+    """
+
+    publish_path: str | None = None  # Path to publish outputs (relative to project)
+    publish_alias: str | None = None  # Alias name for symlink
+    export_path: str | None = None  # Absolute path for cross-project sharing
+    signals_enabled: bool = True
+    signals_dir: str = ".trident/signals"
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "OrchestrationConfig":
+        """Create from manifest orchestration section."""
+        publish = data.get("publish", {})
+        signals = data.get("signals", {})
+
+        return cls(
+            publish_path=publish.get("path"),
+            publish_alias=publish.get("alias"),
+            export_path=data.get("export", {}).get("path"),
+            signals_enabled=signals.get("enabled", True),
+            signals_dir=signals.get("directory", ".trident/signals"),
+        )
+
+
 def _now_iso() -> str:
     """Get current time as ISO string."""
     return datetime.now(UTC).isoformat()
@@ -219,6 +285,26 @@ class ArtifactManager:
     def metadata_path(self) -> Path:
         """Path to metadata file."""
         return self.run_dir / "metadata.json"
+
+    @property
+    def signals_dir(self) -> Path:
+        """Directory for orchestration signals."""
+        if self.config.orchestration and self.config.orchestration.signals_dir:
+            signals_path = self.config.orchestration.signals_dir
+        else:
+            signals_path = ".trident/signals"
+
+        # If relative, resolve against project root or base_dir parent
+        if not Path(signals_path).is_absolute():
+            root = self.config.project_root or self.config.base_dir.parent
+            return root / signals_path
+        return Path(signals_path)
+
+    @property
+    def outputs_publish_dir(self) -> Path:
+        """Directory for published outputs."""
+        root = self.config.project_root or self.config.base_dir.parent
+        return root / ".trident" / "outputs"
 
     def branches_dir(self, branch_id: str) -> Path:
         """Directory for branch iteration states."""
@@ -338,14 +424,107 @@ class ArtifactManager:
         self.trace_path.write_text(json.dumps(data, indent=2, default=str))
         return self.trace_path
 
-    def save_outputs(self, outputs: dict[str, Any]) -> Path:
-        """Save final outputs to disk."""
+    def save_outputs(
+        self,
+        outputs: dict[str, Any],
+        workflow_name: str | None = None,
+        publish_to: str | None = None,
+    ) -> Path:
+        """Save final outputs to disk.
+
+        Args:
+            outputs: The outputs to save
+            workflow_name: Name of workflow (for alias symlinks)
+            publish_to: Override path to publish outputs (CLI override)
+
+        Returns:
+            Path to the saved outputs file
+        """
         if not self.config.persist_outputs:
             return self.outputs_path
 
         self.ensure_dirs()
-        self.outputs_path.write_text(json.dumps(outputs, indent=2, default=str))
+        output_json = json.dumps(outputs, indent=2, default=str)
+        self.outputs_path.write_text(output_json)
+
+        # Handle publishing to well-known location
+        root = self.config.project_root or self.config.base_dir.parent
+        orch = self.config.orchestration
+
+        # CLI override takes precedence
+        if publish_to:
+            publish_path = Path(publish_to)
+            if not publish_path.is_absolute():
+                publish_path = root / publish_path
+            publish_path.parent.mkdir(parents=True, exist_ok=True)
+            publish_path.write_text(output_json)
+        elif orch and orch.publish_path:
+            publish_path = Path(orch.publish_path)
+            if not publish_path.is_absolute():
+                publish_path = root / publish_path
+            publish_path.parent.mkdir(parents=True, exist_ok=True)
+            publish_path.write_text(output_json)
+
+            # Create alias symlink if configured
+            if orch.publish_alias and workflow_name:
+                alias_path = self.outputs_publish_dir / f"{orch.publish_alias}.json"
+                alias_path.parent.mkdir(parents=True, exist_ok=True)
+                # Remove existing symlink/file
+                if alias_path.exists() or alias_path.is_symlink():
+                    alias_path.unlink()
+                alias_path.symlink_to(publish_path)
+
+        # Handle export to absolute path (cross-project sharing)
+        if orch and orch.export_path:
+            export_path = Path(orch.export_path)
+            export_path.parent.mkdir(parents=True, exist_ok=True)
+            export_path.write_text(output_json)
+
         return self.outputs_path
+
+    def emit_signal(
+        self,
+        signal_type: str,
+        workflow_name: str,
+        outputs_path: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> Path | None:
+        """Emit an orchestration signal.
+
+        Args:
+            signal_type: Type of signal (started, completed, failed, ready)
+            workflow_name: Name of the workflow emitting the signal
+            outputs_path: Path to outputs file (for completed/ready signals)
+            metadata: Additional metadata to include
+
+        Returns:
+            Path to the signal file, or None if signals are disabled
+        """
+        if not self.config.emit_signals:
+            return None
+
+        signal = Signal(
+            signal_type=signal_type,
+            run_id=self.run_id,
+            timestamp=_now_iso(),
+            workflow=workflow_name,
+            outputs_path=outputs_path,
+            metadata=metadata or {},
+        )
+        return signal.save(self.signals_dir)
+
+    def clear_signals(self, workflow_name: str) -> None:
+        """Clear all signals for a workflow.
+
+        Called at the start of a run to remove stale signals.
+        """
+        if not self.signals_dir.exists():
+            return
+
+        for signal_type in ["started", "completed", "failed", "ready"]:
+            signal_path = self.signals_dir / f"{workflow_name}.{signal_type}"
+            if signal_path.exists():
+                signal_path.unlink()
 
     def save_metadata(self, metadata: RunMetadata) -> Path:
         """Save run metadata to disk."""
@@ -390,6 +569,8 @@ def get_artifact_manager(
     project_root: Path,
     run_id: str,
     artifact_dir: Path | None = None,
+    emit_signals: bool = False,
+    orchestration: OrchestrationConfig | None = None,
 ) -> ArtifactManager:
     """Create an artifact manager for a run.
 
@@ -397,12 +578,19 @@ def get_artifact_manager(
         project_root: Root directory of the project
         run_id: Unique run identifier
         artifact_dir: Custom artifact directory (default: project_root/.trident)
+        emit_signals: Whether to emit orchestration signals
+        orchestration: Orchestration configuration from manifest
 
     Returns:
         Configured ArtifactManager
     """
     base_dir = artifact_dir if artifact_dir else project_root / ".trident"
-    config = ArtifactConfig(base_dir=base_dir)
+    config = ArtifactConfig(
+        base_dir=base_dir,
+        project_root=project_root,
+        emit_signals=emit_signals,
+        orchestration=orchestration,
+    )
     return ArtifactManager(config, run_id)
 
 
@@ -419,3 +607,39 @@ def find_latest_run(project_root: Path) -> str | None:
     manifest = RunManifest.load(manifest_path)
     latest = manifest.get_latest()
     return latest.run_id if latest else None
+
+
+def resolve_input_source(source: str, project_root: Path) -> dict[str, Any]:
+    """Resolve input data from various sources.
+
+    Supports:
+    - File paths (relative or absolute)
+    - alias:<name> - Load from .trident/outputs/<name>.json
+    - run:<id> - Load from .trident/runs/<id>/outputs.json
+
+    Args:
+        source: Input source specification
+        project_root: Root directory of the project
+
+    Returns:
+        Parsed input data as a dictionary
+
+    Raises:
+        FileNotFoundError: If the source file doesn't exist
+        json.JSONDecodeError: If the file contains invalid JSON
+    """
+    if source.startswith("alias:"):
+        alias = source[6:]
+        path = project_root / ".trident" / "outputs" / f"{alias}.json"
+    elif source.startswith("run:"):
+        run_id = source[4:]
+        path = project_root / ".trident" / "runs" / run_id / "outputs.json"
+    else:
+        path = Path(source)
+        if not path.is_absolute():
+            path = project_root / path
+
+    if not path.exists():
+        raise FileNotFoundError(f"Input source not found: {path}")
+
+    return json.loads(path.read_text())

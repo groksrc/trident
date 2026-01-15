@@ -5,12 +5,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from .artifacts import OrchestrationConfig
 from .errors import ParseError, ValidationError
 from .parser import (
     AgentNode,
     BranchNode,
     MCPServerConfig,
     PromptNode,
+    TriggerNode,
     parse_prompt_file,
     parse_yaml_simple,
 )
@@ -80,7 +82,9 @@ class Project:
     tools: dict[str, ToolDef] = field(default_factory=dict)
     agents: dict[str, AgentNode] = field(default_factory=dict)  # Agent nodes (SPEC-3)
     branches: dict[str, BranchNode] = field(default_factory=dict)  # Branch nodes (sub-workflows)
+    triggers: dict[str, TriggerNode] = field(default_factory=dict)  # Trigger nodes (downstream workflows)
     env: dict[str, dict[str, Any]] = field(default_factory=dict)
+    orchestration: OrchestrationConfig | None = None  # Workflow orchestration config
 
 
 def _load_dotenv(env_path: Path) -> None:
@@ -175,6 +179,10 @@ def load_project(path: str | Path) -> Project:
         entrypoints=manifest.get("entrypoints", []),
     )
 
+    # Parse orchestration config
+    if "orchestration" in manifest:
+        project.orchestration = OrchestrationConfig.from_dict(manifest["orchestration"])
+
     # Parse env declarations
     if "env" in manifest:
         project.env = manifest["env"]
@@ -265,6 +273,29 @@ def load_project(path: str | Path) -> Project:
                     loop_while=node_spec.get("loop_while"),
                     max_iterations=node_spec.get("max_iterations", 10),
                 )
+            elif node_type == "trigger":
+                # Parse trigger node configuration (downstream workflow triggers)
+                workflow_path = node_spec.get("workflow", "")
+                if not workflow_path:
+                    raise ValidationError(
+                        f"Trigger node '{node_id}' missing required 'workflow' path"
+                    )
+
+                mode = node_spec.get("mode", "fire-and-forget")
+                if mode not in ("fire-and-forget", "wait"):
+                    raise ValidationError(
+                        f"Trigger node '{node_id}' has invalid mode '{mode}'. "
+                        f"Must be 'fire-and-forget' or 'wait'."
+                    )
+
+                project.triggers[node_id] = TriggerNode(
+                    id=node_id,
+                    workflow_path=workflow_path,
+                    mode=mode,
+                    pass_outputs=node_spec.get("pass_outputs", True),
+                    emit_signal=node_spec.get("emit_signal", True),
+                    condition=node_spec.get("condition"),
+                )
 
     # Parse edges
     if "edges" in manifest:
@@ -320,6 +351,7 @@ def load_project(path: str | Path) -> Project:
         | set(project.tools.keys())
         | set(project.agents.keys())
         | set(project.branches.keys())
+        | set(project.triggers.keys())
     )
 
     for node_id in all_from_nodes:

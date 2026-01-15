@@ -14,6 +14,8 @@ from . import (
     load_project,
     run,
 )
+from .artifacts import resolve_input_source
+from .orchestration import SignalTimeoutError, wait_for_signal_files
 
 
 def main() -> int:
@@ -88,6 +90,36 @@ def main() -> int:
         help="Start execution from a specific node (requires --resume). "
         "Nodes before this point use cached outputs from the resumed run.",
     )
+    # Orchestration options
+    run_parser.add_argument(
+        "--input-from",
+        dest="input_from",
+        help="Load inputs from file path, alias:name, or run:id",
+    )
+    run_parser.add_argument(
+        "--emit-signal",
+        dest="emit_signal",
+        action="store_true",
+        help="Emit orchestration signals (started/completed/failed/ready)",
+    )
+    run_parser.add_argument(
+        "--publish-to",
+        dest="publish_to",
+        help="Path to publish outputs (overrides manifest orchestration.publish.path)",
+    )
+    run_parser.add_argument(
+        "--wait-for",
+        dest="wait_for",
+        action="append",
+        help="Wait for signal file(s) before starting. Can be specified multiple times. "
+        "Supports: signal:name.type, relative paths, or absolute paths.",
+    )
+    run_parser.add_argument(
+        "--timeout",
+        type=float,
+        default=300.0,
+        help="Timeout in seconds for --wait-for (default: 300)",
+    )
 
     # project validate
     validate_parser = project_subparsers.add_parser("validate", help="Validate a Trident project")
@@ -130,6 +162,39 @@ def main() -> int:
         "--limit", "-n", type=int, default=10, help="Number of runs to show (default: 10)"
     )
 
+    # project schedule
+    schedule_parser = project_subparsers.add_parser(
+        "schedule", help="Generate scheduler configuration for workflow"
+    )
+    schedule_parser.add_argument(
+        "path", nargs="?", default=".", help="Path to project (default: .)"
+    )
+    schedule_parser.add_argument(
+        "--format",
+        "-f",
+        choices=["cron", "systemd", "launchd"],
+        default="cron",
+        help="Output format (default: cron)",
+    )
+    schedule_parser.add_argument(
+        "--show",
+        action="store_true",
+        help="Show current schedule configuration from manifest",
+    )
+
+    # project signals
+    signals_parser = project_subparsers.add_parser(
+        "signals", help="View and manage orchestration signals"
+    )
+    signals_parser.add_argument(
+        "path", nargs="?", default=".", help="Path to project (default: .)"
+    )
+    signals_parser.add_argument(
+        "--clear",
+        action="store_true",
+        help="Remove all signal files",
+    )
+
     args = parser.parse_args()
 
     if not args.command:
@@ -153,6 +218,10 @@ def main() -> int:
                 return cmd_project_graph(args)
             elif args.subcommand == "runs":
                 return cmd_project_runs(args)
+            elif args.subcommand == "schedule":
+                return cmd_project_schedule(args)
+            elif args.subcommand == "signals":
+                return cmd_project_signals(args)
     except TridentError as e:
         print(f"Error: {e}", file=sys.stderr)
         return e.exit_code
@@ -435,13 +504,24 @@ def cmd_project_run(args) -> int:
     """Execute a pipeline."""
     project = load_project(args.path)
 
-    # Parse inputs
+    # Parse inputs (priority: --input > --input-file > --input-from)
     inputs = {}
     if args.input:
         inputs = json.loads(args.input)
     elif args.input_file:
         with open(args.input_file) as f:
             inputs = json.load(f)
+    elif hasattr(args, "input_from") and args.input_from:
+        try:
+            inputs = resolve_input_source(args.input_from, project.root)
+            if args.verbose:
+                print(f"Loaded inputs from: {args.input_from}")
+        except FileNotFoundError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            return ExitCode.VALIDATION_ERROR
+        except json.JSONDecodeError as e:
+            print(f"Error: Invalid JSON in input source: {e}", file=sys.stderr)
+            return ExitCode.VALIDATION_ERROR
 
     # Determine artifact directory (default: .trident/ unless --no-artifacts)
     artifact_dir = None
@@ -464,6 +544,23 @@ def cmd_project_run(args) -> int:
         else:
             resume_from = args.resume
 
+    # Wait for signals if specified
+    if hasattr(args, "wait_for") and args.wait_for:
+        if args.verbose:
+            print(f"Waiting for {len(args.wait_for)} signal(s)...")
+        try:
+            wait_for_signal_files(
+                args.wait_for,
+                project.root,
+                timeout=args.timeout,
+                verbose=args.verbose,
+            )
+            if args.verbose:
+                print("All signals received, proceeding with execution")
+        except SignalTimeoutError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            return ExitCode.TIMEOUT
+
     # Execute
     result = run(
         project,
@@ -475,6 +572,8 @@ def cmd_project_run(args) -> int:
         run_id=args.run_id,
         resume_from=resume_from,
         start_from=args.start_from,
+        emit_signals=getattr(args, "emit_signal", False),
+        publish_to=getattr(args, "publish_to", None),
     )
 
     # Output
@@ -559,6 +658,197 @@ def cmd_project_run(args) -> int:
     # Return appropriate exit code
     if result.error:
         return result.error.exit_code
+    return 0
+
+
+def cmd_project_schedule(args) -> int:
+    """Generate scheduler configuration for workflow."""
+    project = load_project(args.path)
+
+    # Check for orchestration config
+    if not project.orchestration:
+        if args.show:
+            print("No orchestration section configured in manifest")
+            return 0
+        print(
+            "Error: No 'orchestration' section in manifest. "
+            "Add orchestration.schedule.cron to configure a schedule.",
+            file=sys.stderr,
+        )
+        return ExitCode.VALIDATION_ERROR
+
+    schedule = {}
+    if project.orchestration:
+        # Schedule config would need to be added to OrchestrationConfig
+        # For now, we'll check the raw manifest
+        from .parser import parse_yaml_simple
+
+        manifest_path = project.root / "agent.tml"
+        if not manifest_path.exists():
+            for candidate in ["trident.tml", "trident.yaml"]:
+                candidate_path = project.root / candidate
+                if candidate_path.exists():
+                    manifest_path = candidate_path
+                    break
+
+        manifest = parse_yaml_simple(manifest_path.read_text())
+        schedule = manifest.get("orchestration", {}).get("schedule", {})
+        depends_on = manifest.get("orchestration", {}).get("depends_on", [])
+
+    if args.show:
+        print(f"Project: {project.name}")
+        print(f"Root: {project.root}")
+        print()
+        if schedule:
+            print("Schedule Configuration:")
+            if "cron" in schedule:
+                print(f"  Cron: {schedule['cron']}")
+            if "description" in schedule:
+                print(f"  Description: {schedule['description']}")
+        else:
+            print("No schedule configured")
+        print()
+        if depends_on:
+            print("Dependencies:")
+            for dep in depends_on:
+                workflow = dep.get("workflow", "?")
+                signal = dep.get("signal", "ready")
+                print(f"  - {workflow}.{signal}")
+        return 0
+
+    cron_expr = schedule.get("cron")
+    if not cron_expr:
+        print(
+            "Error: No cron expression in orchestration.schedule.cron",
+            file=sys.stderr,
+        )
+        return ExitCode.VALIDATION_ERROR
+
+    project_path = project.root.resolve()
+
+    # Build wait-for arguments from dependencies
+    wait_args = ""
+    if depends_on:
+        for dep in depends_on:
+            workflow = dep.get("workflow", "")
+            signal = dep.get("signal", "ready")
+            dep_path = dep.get("path", "")
+            if dep_path:
+                wait_args += f" --wait-for {dep_path}/{workflow}.{signal}"
+            else:
+                wait_args += f" --wait-for signal:{workflow}.{signal}"
+
+    if args.format == "cron":
+        cmd = f"cd {project_path} && python -m trident project run --emit-signal{wait_args}"
+        print(f"{cron_expr} {cmd}")
+
+    elif args.format == "systemd":
+        # Generate systemd timer + service units
+        service_name = f"trident-{project.name}"
+        print(f"# /etc/systemd/system/{service_name}.service")
+        print("[Unit]")
+        print(f"Description=Trident workflow: {project.name}")
+        print()
+        print("[Service]")
+        print("Type=oneshot")
+        print(f"WorkingDirectory={project_path}")
+        print(f"ExecStart=/usr/bin/python -m trident project run --emit-signal{wait_args}")
+        print()
+        print("[Install]")
+        print("WantedBy=multi-user.target")
+        print()
+        print(f"# /etc/systemd/system/{service_name}.timer")
+        print("[Unit]")
+        print(f"Description=Timer for Trident workflow: {project.name}")
+        print()
+        print("[Timer]")
+        # Convert cron to systemd calendar format (simplified)
+        print(f"OnCalendar=*-*-* *:00:00  # Adjust based on: {cron_expr}")
+        print("Persistent=true")
+        print()
+        print("[Install]")
+        print("WantedBy=timers.target")
+
+    elif args.format == "launchd":
+        # Generate launchd plist
+        label = f"com.trident.{project.name}"
+        print(f'<?xml version="1.0" encoding="UTF-8"?>')
+        print(
+            '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
+            '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">'
+        )
+        print('<plist version="1.0">')
+        print("<dict>")
+        print(f"    <key>Label</key>")
+        print(f"    <string>{label}</string>")
+        print(f"    <key>WorkingDirectory</key>")
+        print(f"    <string>{project_path}</string>")
+        print(f"    <key>ProgramArguments</key>")
+        print(f"    <array>")
+        print(f"        <string>/usr/bin/python</string>")
+        print(f"        <string>-m</string>")
+        print(f"        <string>trident</string>")
+        print(f"        <string>project</string>")
+        print(f"        <string>run</string>")
+        print(f"        <string>--emit-signal</string>")
+        print(f"    </array>")
+        print(f"    <key>StartCalendarInterval</key>")
+        print(f"    <!-- Adjust based on cron: {cron_expr} -->")
+        print(f"    <dict>")
+        print(f"        <key>Hour</key>")
+        print(f"        <integer>0</integer>")
+        print(f"        <key>Minute</key>")
+        print(f"        <integer>0</integer>")
+        print(f"    </dict>")
+        print("</dict>")
+        print("</plist>")
+
+    return 0
+
+
+def cmd_project_signals(args) -> int:
+    """View and manage orchestration signals."""
+    project = load_project(args.path)
+    signals_dir = project.root / ".trident" / "signals"
+
+    if args.clear:
+        if signals_dir.exists():
+            import shutil
+
+            shutil.rmtree(signals_dir)
+            print(f"Cleared signals directory: {signals_dir}")
+        else:
+            print("No signals directory to clear")
+        return 0
+
+    # List current signals
+    print(f"Project: {project.name}")
+    print(f"Signals directory: {signals_dir}")
+    print()
+
+    if not signals_dir.exists():
+        print("No signals found")
+        return 0
+
+    signal_files = list(signals_dir.glob("*"))
+    if not signal_files:
+        print("No signals found")
+        return 0
+
+    print("Current signals:")
+    for signal_path in sorted(signal_files):
+        try:
+            from .artifacts import Signal
+
+            signal = Signal.load(signal_path)
+            print(f"  {signal_path.name}")
+            print(f"    Run ID: {signal.run_id}")
+            print(f"    Timestamp: {signal.timestamp}")
+            if signal.outputs_path:
+                print(f"    Outputs: {signal.outputs_path}")
+        except Exception as e:
+            print(f"  {signal_path.name} (error reading: {e})")
+
     return 0
 
 

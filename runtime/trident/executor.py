@@ -13,7 +13,7 @@ from .artifacts import ArtifactManager, RunMetadata, get_artifact_manager
 from .conditions import evaluate
 from .dag import DAG, build_dag, get_ancestors, validate_edge_mappings
 from .errors import BranchError, NodeExecutionError, SchemaValidationError, TridentError
-from .parser import PromptNode, parse_prompt_file
+from .parser import PromptNode, TriggerNode, parse_prompt_file
 from .project import Edge, Project
 from .providers import CompletionConfig, get_registry, setup_providers
 from .template import get_nested, render
@@ -372,6 +372,8 @@ def run(
     artifact_dir: str | Path | None = None,
     run_id: str | None = None,
     start_from: str | None = None,
+    emit_signals: bool = False,
+    publish_to: str | None = None,
 ) -> ExecutionResult:
     """Execute a Trident project.
 
@@ -389,6 +391,8 @@ def run(
         run_id: Custom run ID (default: auto-generated UUID)
         start_from: Node ID to start execution from (requires resume_from).
             Only ancestors of this node will be treated as completed.
+        emit_signals: If True, emit orchestration signals (started/completed/failed/ready)
+        publish_to: Override path for publishing outputs (CLI override)
 
     Returns:
         ExecutionResult with outputs and trace. Always returns, even on failure.
@@ -507,7 +511,13 @@ def run(
     artifact_manager: ArtifactManager | None = None
     if artifact_dir:
         artifact_path = Path(artifact_dir) if isinstance(artifact_dir, str) else artifact_dir
-        artifact_manager = get_artifact_manager(project.root, effective_run_id, artifact_path)
+        artifact_manager = get_artifact_manager(
+            project.root,
+            effective_run_id,
+            artifact_path,
+            emit_signals=emit_signals,
+            orchestration=project.orchestration,
+        )
         artifact_manager.register_run(project.name, entrypoint)
 
         # Save initial metadata
@@ -520,6 +530,13 @@ def run(
             started_at=_now_iso(),
         )
         artifact_manager.save_metadata(metadata)
+
+        # Emit started signal if enabled
+        if emit_signals:
+            artifact_manager.clear_signals(project.name)  # Clear stale signals
+            artifact_manager.emit_signal("started", project.name)
+            if verbose:
+                print(f"Signal emitted: {project.name}.started")
 
         if verbose:
             print(f"Artifacts: {artifact_manager.run_dir}")
@@ -709,8 +726,12 @@ def run(
         # Save trace
         artifact_manager.save_trace(trace)
 
-        # Save outputs
-        artifact_manager.save_outputs(final_outputs)
+        # Save outputs (with publishing if configured)
+        artifact_manager.save_outputs(
+            final_outputs,
+            workflow_name=project.name,
+            publish_to=publish_to,
+        )
 
         # Update run status
         artifact_manager.update_run_status(
@@ -718,6 +739,31 @@ def run(
             success=execution_error is None,
             error_summary=str(execution_error) if execution_error else None,
         )
+
+        # Emit completion/failure signals
+        if emit_signals:
+            outputs_path = str(artifact_manager.outputs_path)
+            if execution_error:
+                artifact_manager.emit_signal(
+                    "failed",
+                    project.name,
+                    metadata={"error": str(execution_error)},
+                )
+                if verbose:
+                    print(f"Signal emitted: {project.name}.failed")
+            else:
+                artifact_manager.emit_signal(
+                    "completed",
+                    project.name,
+                    outputs_path=outputs_path,
+                )
+                artifact_manager.emit_signal(
+                    "ready",
+                    project.name,
+                    outputs_path=outputs_path,
+                )
+                if verbose:
+                    print(f"Signals emitted: {project.name}.completed, {project.name}.ready")
 
         if verbose:
             print(f"Artifacts saved to: {artifact_manager.run_dir}")
@@ -824,6 +870,20 @@ async def _execute_node_async(
                 checkpoint_dir,
                 artifact_manager,
                 checkpoint,
+            )
+
+        elif node.type == "trigger":
+            # Trigger nodes fire downstream workflows
+            await asyncio.to_thread(
+                _execute_trigger_node,
+                node_id,
+                project,
+                dag,
+                node_outputs,
+                node_trace,
+                dry_run,
+                verbose,
+                artifact_manager,
             )
 
         node_trace.end_time = _now_iso()
@@ -1213,3 +1273,186 @@ def _execute_branch_node(
 
     # Output is the final iteration's outputs
     node_trace.output = final_outputs
+
+
+def _execute_trigger_node(
+    node_id: str,
+    project: Project,
+    dag: DAG,
+    node_outputs: dict[str, dict[str, Any]],
+    node_trace: NodeTrace,
+    dry_run: bool,
+    verbose: bool,
+    artifact_manager: ArtifactManager | None = None,
+) -> None:
+    """Execute a trigger node (fire downstream workflow).
+
+    Trigger nodes start a downstream workflow either in fire-and-forget mode
+    (subprocess, don't wait) or wait mode (block until completion).
+
+    Output fields:
+    - triggered: bool - Whether the trigger was executed
+    - status: str - "success", "skipped", or "dry_run"
+    - output: dict - Downstream workflow outputs (wait mode only)
+    """
+    import subprocess
+    import sys
+
+    from .project import load_project
+
+    trigger_node = project.triggers.get(node_id)
+    if not trigger_node:
+        raise TridentError(f"Trigger definition not found: {node_id}")
+
+    # Gather inputs from upstream nodes
+    gathered = _gather_inputs(node_id, dag, node_outputs)
+    node_trace.input = gathered
+
+    # Evaluate pre-condition (skip if false)
+    if trigger_node.condition:
+        context = {"output": gathered, **gathered}
+        try:
+            should_execute = evaluate(trigger_node.condition, context)
+        except Exception as e:
+            raise TridentError(
+                f"Failed to evaluate trigger condition: {trigger_node.condition}"
+            ) from e
+
+        if not should_execute:
+            node_trace.skipped = True
+            node_trace.output = {
+                "triggered": False,
+                "status": "skipped",
+                "output": {},
+            }
+            if verbose:
+                print(f"  Trigger {node_id} skipped (condition false)")
+            return
+
+    if dry_run:
+        node_trace.output = {
+            "triggered": False,
+            "status": "dry_run",
+            "output": {},
+        }
+        if verbose:
+            print(f"  [DRY RUN] Would trigger: {trigger_node.workflow_path}")
+        return
+
+    # Resolve workflow path
+    workflow_path = project.root / trigger_node.workflow_path
+    if not workflow_path.exists():
+        raise TridentError(f"Trigger workflow not found: {workflow_path}")
+
+    if verbose:
+        mode_desc = "fire-and-forget" if trigger_node.mode == "fire-and-forget" else "waiting"
+        print(f"  Triggering workflow ({mode_desc}): {trigger_node.workflow_path}")
+
+    # Prepare inputs JSON if pass_outputs is enabled
+    input_json_path = None
+    if trigger_node.pass_outputs and gathered:
+        import tempfile
+
+        # Write gathered inputs to temp file for downstream workflow
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".json", delete=False
+        ) as f:
+            json.dump(gathered, f)
+            input_json_path = f.name
+
+    # Build command
+    cmd = [
+        sys.executable,
+        "-m",
+        "trident",
+        "project",
+        "run",
+        str(workflow_path),
+    ]
+
+    if input_json_path:
+        cmd.extend(["--input-from", input_json_path])
+
+    if trigger_node.emit_signal:
+        cmd.append("--emit-signal")
+
+    if trigger_node.mode == "fire-and-forget":
+        # Fire-and-forget: start subprocess and return immediately
+        try:
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                start_new_session=True,  # Detach from parent process
+            )
+            node_trace.output = {
+                "triggered": True,
+                "status": "success",
+                "pid": process.pid,
+                "output": {},
+            }
+            if verbose:
+                print(f"  Triggered workflow (PID: {process.pid})")
+        except Exception as e:
+            raise TridentError(f"Failed to trigger workflow: {e}") from e
+
+    else:  # wait mode
+        # Wait mode: run downstream workflow and capture result
+        try:
+            # Load and run the downstream project directly
+            sub_project = load_project(workflow_path)
+
+            # Determine artifact dir for downstream
+            sub_artifact_dir = None
+            if artifact_manager:
+                sub_artifact_dir = artifact_manager.run_dir / "triggers" / node_id
+
+            sub_result = run(
+                project=sub_project,
+                inputs=gathered if trigger_node.pass_outputs else None,
+                dry_run=dry_run,
+                verbose=verbose,
+                artifact_dir=sub_artifact_dir,
+                emit_signals=trigger_node.emit_signal,
+            )
+
+            if not sub_result.success:
+                raise TridentError(
+                    f"Triggered workflow failed: {sub_result.error}"
+                )
+
+            # Flatten outputs from sub-workflow
+            raw_outputs = sub_result.outputs
+            if len(raw_outputs) == 1:
+                final_outputs = next(iter(raw_outputs.values()))
+                if not isinstance(final_outputs, dict):
+                    final_outputs = raw_outputs
+            else:
+                final_outputs = {}
+                for out in raw_outputs.values():
+                    if isinstance(out, dict):
+                        final_outputs.update(out)
+                    else:
+                        final_outputs = raw_outputs
+                        break
+
+            node_trace.output = {
+                "triggered": True,
+                "status": "success",
+                "output": final_outputs,
+            }
+
+            if verbose:
+                print(f"  Triggered workflow completed successfully")
+
+        except Exception as e:
+            raise TridentError(f"Triggered workflow failed: {e}") from e
+
+    # Clean up temp file
+    if input_json_path:
+        import os
+
+        try:
+            os.unlink(input_json_path)
+        except OSError:
+            pass

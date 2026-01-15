@@ -915,6 +915,119 @@ With `--start-from refine`:
 - Debugging: Isolate which node is producing incorrect output
 - Cost savings: Avoid re-running expensive LLM calls for nodes that worked correctly
 
+## Workflow Orchestration
+
+Trident supports file-based orchestration for chaining workflows together without external dependencies.
+
+### Signal Files
+
+Enable signal emission to coordinate between workflows:
+
+```yaml
+# In agent.tml
+orchestration:
+  signals:
+    enabled: true
+```
+
+Or via CLI:
+```bash
+python -m trident project run ./my-workflow --emit-signal
+```
+
+Signal files are created in `.trident/signals/`:
+- `{workflow}.started` - Emitted when execution begins
+- `{workflow}.completed` - Emitted on successful completion
+- `{workflow}.failed` - Emitted on error (includes error details)
+- `{workflow}.ready` - Emitted after outputs are published
+
+### Input Chaining
+
+Load inputs from previous workflow outputs:
+
+```bash
+# From a file path
+python -m trident project run --input-from ../upstream/.trident/outputs/latest.json
+
+# From an alias (if upstream published with an alias)
+python -m trident project run --input-from alias:upstream-workflow
+
+# From a specific run ID
+python -m trident project run --input-from run:abc123-def456
+```
+
+### Wait Conditions
+
+Block execution until upstream workflows complete:
+
+```bash
+# Wait for a single signal
+python -m trident project run ./downstream \
+  --wait-for ../upstream/.trident/signals/upstream.ready
+
+# Wait with timeout (default 300s)
+python -m trident project run ./downstream \
+  --wait-for ../upstream/.trident/signals/upstream.ready \
+  --timeout 600
+
+# Wait for multiple signals
+python -m trident project run ./final \
+  --wait-for ./step1/.trident/signals/step1.ready \
+  --wait-for ./step2/.trident/signals/step2.ready
+```
+
+### Publishing Outputs
+
+Publish outputs to well-known paths:
+
+```bash
+python -m trident project run ./my-workflow --publish-to ./shared/outputs.json
+```
+
+Or configure in manifest:
+```yaml
+orchestration:
+  publish:
+    path: .trident/outputs/latest.json
+    alias: my-workflow
+```
+
+### Multi-Workflow Pipeline Example
+
+```bash
+# Workflow A: Data collection
+cd workflow-a && python -m trident project run --emit-signal
+
+# Workflow B: Processing (waits for A)
+cd workflow-b && python -m trident project run \
+  --wait-for ../workflow-a/.trident/signals/workflow-a.ready \
+  --input-from ../workflow-a/.trident/outputs/latest.json \
+  --emit-signal
+
+# Workflow C: Final report (waits for B)
+cd workflow-c && python -m trident project run \
+  --wait-for ../workflow-b/.trident/signals/workflow-b.ready \
+  --input-from ../workflow-b/.trident/outputs/latest.json
+```
+
+## Relative Module Paths for Tools
+
+Tools can reference Python modules using relative paths, useful for shared tool libraries:
+
+```yaml
+# Skill in skills/my-skill/agent.tml can reference shared tools
+tools:
+  my_tool:
+    type: python
+    module: ../../tools/shared_utils.py    # Relative to project root
+    function: my_function
+```
+
+Path resolution:
+- Paths starting with `../` are resolved relative to the project directory
+- Paths starting with `/` are treated as absolute paths
+- Other paths look in the project's `tools/` directory (default behavior)
+
 ## References
 
 - Source: `runtime/trident/`

@@ -31,7 +31,11 @@ def get_tool_parameters(project_root: Path, tool_def: ToolDef) -> set[str] | Non
     if not module_path.endswith(".py"):
         module_path = f"{module_path}.py"
 
-    full_path = project_root / "tools" / module_path
+    # Support relative paths (e.g., ../shared/browser.py)
+    if module_path.startswith("../") or module_path.startswith("/"):
+        full_path = (project_root / module_path).resolve()
+    else:
+        full_path = project_root / "tools" / module_path
     if not full_path.exists():
         return None
 
@@ -84,11 +88,16 @@ class PythonToolRunner:
         if module_path in self._loaded_modules:
             return self._loaded_modules[module_path]
 
-        # Resolve path relative to project tools/
+        # Resolve path
         if not module_path.endswith(".py"):
             module_path = f"{module_path}.py"
 
-        full_path = self.project_root / "tools" / module_path
+        # Support relative paths (e.g., ../shared/browser.py)
+        if module_path.startswith("../") or module_path.startswith("/"):
+            full_path = (self.project_root / module_path).resolve()
+        else:
+            # Default: look in project tools/ directory
+            full_path = self.project_root / "tools" / module_path
         if not full_path.exists():
             raise ToolError(f"Tool module not found: {full_path}")
 

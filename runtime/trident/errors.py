@@ -11,6 +11,7 @@ class ExitCode(IntEnum):
     RUNTIME_ERROR = 1
     VALIDATION_ERROR = 2
     PROVIDER_ERROR = 3
+    TIMEOUT = 4  # Signal wait timeout
 
 
 class TridentError(Exception):
