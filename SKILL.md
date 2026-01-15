@@ -1028,6 +1028,332 @@ Path resolution:
 - Paths starting with `/` are treated as absolute paths
 - Other paths look in the project's `tools/` directory (default behavior)
 
+## Agent Nodes with MCP Servers
+
+Agent nodes can use MCP (Model Context Protocol) servers for external capabilities like browser automation, database access, or custom tools.
+
+### Basic Agent with MCP
+
+```yaml
+nodes:
+  browser_agent:
+    type: agent
+    prompt: prompts/browse.prompt
+    mcp_servers:
+      chrome-devtools:
+        command: npx
+        args: ["-y", "chrome-devtools-mcp@latest", "--browserUrl", "http://127.0.0.1:9222"]
+    allowed_tools:
+      - mcp__chrome-devtools__navigate_page
+      - mcp__chrome-devtools__take_snapshot
+      - mcp__chrome-devtools__click
+      - mcp__chrome-devtools__fill
+    max_turns: 20
+```
+
+**Key fields:**
+- `mcp_servers`: Map of server name → command configuration
+- `allowed_tools`: Whitelist of tools the agent can use (MCP tools prefixed with `mcp__servername__`)
+- `max_turns`: Limit agent iterations to prevent runaway execution
+
+### Interactive Agents
+
+For workflows requiring user input mid-execution:
+
+```yaml
+nodes:
+  review_agent:
+    type: agent
+    prompt: prompts/review.prompt
+    interactive: true
+    max_turns: 10
+```
+
+`interactive: true` allows the agent to pause and request user input during execution.
+
+## Trigger Nodes and Skills
+
+Trigger nodes call sub-workflows, enabling modular "skills" that can be composed into larger workflows.
+
+### Skills Directory Pattern
+
+```
+my-workflow/
+  agent.tml                    # Main orchestrator
+  skills/
+    research/
+      agent.tml                # Skill workflow
+      prompts/
+        research.prompt
+    draft/
+      agent.tml
+      prompts/
+        draft.prompt
+    publish/
+      agent.tml
+      prompts/
+        publish.prompt
+```
+
+### Main Workflow with Triggers
+
+```yaml
+trident: "0.1"
+name: content-pipeline
+description: Research, draft, and publish content
+
+nodes:
+  input:
+    type: input
+    schema:
+      topic:
+        type: string
+        description: Topic to create content about
+
+  research:
+    type: trigger
+    workflow: ./skills/research
+
+  draft:
+    type: trigger
+    workflow: ./skills/draft
+
+  publish:
+    type: trigger
+    workflow: ./skills/publish
+
+  output:
+    type: output
+    format: json
+
+edges:
+  e1:
+    from: input
+    to: research
+    mapping:
+      topic: topic
+
+  e2:
+    from: research
+    to: draft
+    mapping:
+      research_summary: summary
+
+  e3:
+    from: draft
+    to: publish
+    mapping:
+      content: draft
+
+  e4:
+    from: publish
+    to: output
+    mapping:
+      status: status
+      url: url
+```
+
+### Skill Workflow Example
+
+```yaml
+# skills/research/agent.tml
+trident: "0.1"
+name: research-skill
+description: Research a topic using web search
+
+nodes:
+  input:
+    type: input
+    schema:
+      topic:
+        type: string
+
+  research_agent:
+    type: agent
+    prompt: prompts/research.prompt
+    mcp_servers:
+      web-search:
+        command: npx
+        args: ["-y", "web-search-mcp"]
+    allowed_tools:
+      - mcp__web-search__search
+    max_turns: 5
+
+  output:
+    type: output
+    format: json
+
+edges:
+  input_to_agent:
+    from: input
+    to: research_agent
+    mapping:
+      topic: topic
+
+  agent_to_output:
+    from: research_agent
+    to: output
+    mapping:
+      summary: summary
+```
+
+## Practical Patterns
+
+### Browser Automation (Chrome DevTools)
+
+For automating web interactions (posting to social media, filling forms, scraping):
+
+```yaml
+nodes:
+  post_agent:
+    type: agent
+    prompt: prompts/post.prompt
+    mcp_servers:
+      chrome-devtools:
+        command: npx
+        args: ["-y", "chrome-devtools-mcp@latest", "--browserUrl", "http://127.0.0.1:9222"]
+    allowed_tools:
+      - mcp__chrome-devtools__navigate_page
+      - mcp__chrome-devtools__take_snapshot
+      - mcp__chrome-devtools__take_screenshot
+      - mcp__chrome-devtools__click
+      - mcp__chrome-devtools__fill
+      - mcp__chrome-devtools__hover
+      - mcp__chrome-devtools__press_key
+      - mcp__chrome-devtools__wait_for
+    interactive: true
+    max_turns: 20
+```
+
+**Prerequisites:**
+- Chrome running with remote debugging: `chrome --remote-debugging-port=9222`
+- User logged into target sites before workflow execution
+
+**Common tool usage in prompts:**
+```
+1. Navigate: mcp__chrome-devtools__navigate_page
+2. Get page state: mcp__chrome-devtools__take_snapshot
+3. Find element UID in snapshot
+4. Interact: click, fill, hover, press_key
+5. Verify: take_screenshot or take_snapshot
+```
+
+### HTTP/API Calls (Webhooks, REST)
+
+For simple API integrations without browser overhead, use bash with curl:
+
+```yaml
+nodes:
+  post_agent:
+    type: agent
+    prompt: prompts/post.prompt
+    allowed_tools:
+      - Bash
+    max_turns: 5
+```
+
+**Prompt pattern for Discord webhooks:**
+```yaml
+---
+id: post_agent
+# ... input/output schema
+---
+Post this message to Discord:
+{{ message }}
+
+Webhook URL: https://discord.com/api/webhooks/XXX/YYY
+
+Use curl:
+```bash
+cat << 'EOF' | curl -s -H "Content-Type: application/json" -d @- "WEBHOOK_URL?wait=true"
+{"content":"MESSAGE","username":"Bot Name"}
+EOF
+```
+
+Return {"status": "success"} on 2xx response.
+```
+
+**When to use each pattern:**
+- **Browser automation**: Sites requiring login, JavaScript rendering, complex UI
+- **Direct API**: Webhooks, REST APIs with tokens, simple POST/GET operations
+
+### Knowledge Storage (Basic Memory)
+
+For workflows that archive results or build knowledge:
+
+```yaml
+nodes:
+  archive_agent:
+    type: agent
+    prompt: prompts/archive.prompt
+    mcp_servers:
+      basic-memory-cloud:
+        command: uvx
+        args: ["basic-memory-cloud-mcp"]
+    allowed_tools:
+      - mcp__basic-memory-cloud__write_note
+      - mcp__basic-memory-cloud__search_notes
+```
+
+## Environment Variables for Skills
+
+Skills can define environment variables scoped to their execution:
+
+```yaml
+# skills/post/agent.tml
+trident: "0.1"
+name: post-skill
+
+env:
+  WEBHOOK_URL: "https://discord.com/api/webhooks/..."
+  BOT_USERNAME: "My Bot"
+
+nodes:
+  # ... nodes can reference these via prompts
+```
+
+**Note:** Sensitive values like API keys should go in `.env` at project root, not committed to version control.
+
+## Common Gotchas
+
+### MCP Server Startup
+
+MCP servers start fresh for each agent execution. Account for:
+- Startup time (add waits if needed)
+- No persistent state between runs
+- Server logs in `.trident/runs/<run-id>/mcp/`
+
+### Tool Name Format
+
+MCP tools follow the pattern: `mcp__<server-name>__<tool-name>`
+
+```yaml
+# Server named "chrome-devtools" with tool "click"
+allowed_tools:
+  - mcp__chrome-devtools__click
+```
+
+### Interactive Mode Limitations
+
+- Only works with `type: agent` nodes
+- Requires a TTY (won't work in background/CI)
+- User input is synchronous (blocks workflow)
+
+### Skill Output Mapping
+
+Trigger nodes expose the sub-workflow's output fields directly:
+
+```yaml
+# If skill outputs {"summary": "...", "confidence": 0.9}
+edges:
+  e1:
+    from: research_skill
+    to: next_node
+    mapping:
+      data: summary        # Access output fields directly
+      score: confidence
+```
+
 ## References
 
 - Source: `runtime/trident/`
