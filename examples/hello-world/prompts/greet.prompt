@@ -1,0 +1,17 @@
+---
+id: greet
+name: Greeting Generator
+description: Generates a friendly greeting
+
+input:
+  name:
+    type: string
+    required: true
+    description: The name to greet
+
+output:
+  format: text
+---
+Generate a warm, friendly greeting for {{ name }}.
+
+Keep it to one sentence.

@@ -1,0 +1,27 @@
+---
+id: classify
+name: Sentiment Classifier
+description: Classifies message sentiment
+
+input:
+  message:
+    type: string
+    required: true
+
+output:
+  format: json
+  schema:
+    sentiment:
+      type: string
+      description: One of "positive", "negative", or "neutral"
+    message:
+      type: string
+      description: The original message (passed through)
+---
+Classify the sentiment of this message as "positive", "negative", or "neutral".
+
+Message: {{ message }}
+
+Return JSON with:
+- sentiment: exactly one of "positive", "negative", or "neutral"
+- message: the original message unchanged

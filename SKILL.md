@@ -416,6 +416,10 @@ nodes:
       text:
         type: string
         description: Text to evaluate and refine
+      pass_count:
+        type: number
+        description: Current pass number (0-indexed)
+        required: false
 
   process:
     type: prompt
@@ -431,15 +435,18 @@ edges:
     to: process
     mapping:
       text: text
+      pass_count: pass_count
 
   e2:
     from: process
     to: loop_output
     mapping:
       text: text
+      pass_count: pass_count
       needs_refinement: needs_refinement
-      quality_score: quality_score
 ```
+
+**Critical**: The sub-workflow must pass `pass_count` through edges so each iteration knows which pass it's on. Without this, the LLM can't track iterations.
 
 **Prompt** (`workflows/prompts/process.prompt`):
 ```yaml
@@ -449,6 +456,9 @@ input:
   text:
     type: string
     required: true
+  pass_count:
+    type: number
+    required: false
 
 output:
   format: json
@@ -456,22 +466,38 @@ output:
     text:
       type: string
       description: The refined text
-    quality_score:
+    pass_count:
       type: number
-      description: Quality score 0-100
+      description: Incremented pass number
     needs_refinement:
       type: boolean
-      description: True if score < 85
+      description: Whether another pass is needed
 ---
-Evaluate and refine this text:
+You are a text refiner working in multiple passes.
 
-{{text}}
+Current pass number: {{pass_count}}
+(If empty or null, treat as pass 0)
 
-Return JSON with:
-- text: refined version (or original if quality >= 85)
-- quality_score: numeric score
-- needs_refinement: true if score < 85
+Text to refine: {{text}}
+
+TASK BY PASS NUMBER:
+- Pass 0: Fix spelling and grammar errors. Output needs_refinement=true
+- Pass 1+: Improve clarity and style. Output needs_refinement=false
+
+OUTPUT REQUIREMENTS:
+Return valid JSON with these exact fields:
+{
+  "text": "your refined text",
+  "pass_count": <current pass + 1>,
+  "needs_refinement": <true if this is pass 0, false otherwise>
+}
+
+IMPORTANT:
+- If current pass is 0 (or empty), output pass_count=1 and needs_refinement=true
+- If current pass is 1 or higher, output pass_count=<current+1> and needs_refinement=false
 ```
+
+**Key pattern**: The LLM determines loop termination based on text instructions, not computed template values. Include `pass_count` in the sub-workflow's input/output schema so it flows through iterations.
 
 ### Debugging Loop Issues
 
@@ -491,10 +517,25 @@ Each iteration saves:
 1. Loop condition never becomes false → hits max_iterations
 2. Output schema mismatch → next iteration fails with missing input fields
 3. Prompt directory shared between workflows → DAG construction conflicts
+4. LLM ignoring loop termination instructions → use explicit text rules in the prompt
 
 ## Prompt File Structure
 
-Prompts use YAML frontmatter for metadata and Jinja2 templates for the body:
+Prompts use YAML frontmatter for metadata and simple variable templates for the body.
+
+### Template Syntax
+
+Trident uses simple `{{variable}}` substitution:
+
+```yaml
+{{variable}}              # Direct substitution
+{{ variable }}            # Spaces allowed
+{{nested.path.value}}     # Dot notation for nested objects
+```
+
+Unknown variables are left as-is. For computed values or conditional logic, write plain text instructions for the LLM to interpret.
+
+### Prompt Frontmatter
 
 ```yaml
 ---
@@ -1259,7 +1300,7 @@ id: post_agent
 # ... input/output schema
 ---
 Post this message to Discord:
-{{ message }}
+{{message}}
 
 Webhook URL: https://discord.com/api/webhooks/XXX/YYY
 
@@ -1357,5 +1398,5 @@ edges:
 ## References
 
 - Source: `runtime/trident/`
-- Examples: `examples/`
+- Examples: `examples/` (learning/demo workflows)
 - README: `README.md`
