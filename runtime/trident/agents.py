@@ -225,6 +225,18 @@ async def execute_agent_async(
             f"matching the schema after multiple retries"
         )
 
+    # Handle max turns exceeded
+    if (
+        result_message
+        and hasattr(result_message, "subtype")
+        and result_message.subtype == "error_max_turns"  # type: ignore[union-attr]
+    ):
+        raise AgentExecutionError(
+            f"Agent '{agent_node.id}' exceeded max_turns ({agent_node.max_turns}). "
+            f"The agent ran out of turns before completing. "
+            f"Increase max_turns in the agent configuration."
+        )
+
     # Use structured output if available (preferred - API validated)
     if structured_output is not None:
         output = structured_output
