@@ -144,8 +144,9 @@ async def execute_agent_async(
         }
 
     # Build SDK options
+    # Note: allowed_tools=None means "allow all tools", [] means "block all tools"
     options = ClaudeAgentOptions(
-        allowed_tools=agent_node.allowed_tools or [],
+        allowed_tools=agent_node.allowed_tools if agent_node.allowed_tools else [],
         mcp_servers=mcp_servers if mcp_servers else {},
         cwd=cwd,
         max_turns=agent_node.max_turns,

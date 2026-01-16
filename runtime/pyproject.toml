@@ -1,6 +1,6 @@
 [project]
 name = "trident"
-version = "0.9.1"
+version = "0.9.2"
 description = "Python runtime for LLM agent orchestration with Claude Agent SDK support"
 requires-python = ">=3.12"
 license = {text = "MIT"}
@@ -21,6 +21,9 @@ dev = [
     "ruff>=0.8",
     "pyright>=1.1",
 ]
+
+[project.scripts]
+trident = "trident.__main__:main"
 
 [tool.ruff]
 line-length = 100

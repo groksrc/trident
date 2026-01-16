@@ -95,7 +95,7 @@ class TestAgentNodeConfig(unittest.TestCase):
 
         self.assertEqual(agent.max_turns, 50)
         self.assertEqual(agent.permission_mode, "acceptEdits")
-        self.assertEqual(agent.allowed_tools, [])
+        self.assertIsNone(agent.allowed_tools)  # None means "allow all tools"
         self.assertEqual(agent.mcp_servers, {})
         self.assertIsNone(agent.cwd)
 

@@ -64,7 +64,7 @@ class AgentNode:
 
     id: str
     prompt_path: str  # Path to .prompt file
-    allowed_tools: list[str] = field(default_factory=list)
+    allowed_tools: list[str] | None = None  # None means "allow all tools"
     mcp_servers: dict[str, MCPServerConfig] = field(default_factory=dict)
     max_turns: int = 50  # Default limit for agent iterations
     permission_mode: str = "acceptEdits"  # Auto-accept file edits
