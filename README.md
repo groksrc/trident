@@ -38,9 +38,11 @@ python -m trident project validate
 python -m trident project run --dry-run -i '{"text": "Hello world"}'
 ```
 
-## TML - Trident Markup Language
+## TML - Text (Trident) Markup Language
 
-Trident uses `.tml` files (Trident Markup Language) as the conventional manifest format. TML files are valid YAML with a semantic file extension.
+Remember HTML? Well, this is just the TML for marking up agents.
+
+Trident uses `.tml` files as the conventional manifest format. TML files are valid YAML with a semantic file extension.
 
 **Auto-discovery order** (when given a directory):
 1. `agent.tml` (primary)
@@ -194,6 +196,7 @@ python -m trident project run [path] [options]
   --dry-run                  # Simulate without LLM calls
   --trace                    # Show execution trace
   --resume ID|latest         # Resume from checkpoint
+  --start-from NODE          # Start from specific node (requires --resume)
 
 # Orchestration options
   --input-from PATH          # Load inputs from file, alias:name, or run:id
@@ -292,7 +295,7 @@ for node in result.trace.nodes:
 - **DAG Execution**: Automatic topological ordering and dependency resolution
 - **Parallel Execution**: Independent nodes run concurrently
 - **Conditional Edges**: Skip nodes based on runtime conditions
-- **Checkpoints**: Resume interrupted runs from last successful node
+- **Checkpoints**: Resume interrupted runs from last successful node or specific node
 - **Artifacts**: Automatic persistence of runs, traces, and outputs
 - **Dry Run**: Test pipelines without LLM calls
 - **Mermaid Visualization**: Generate interactive DAG diagrams
@@ -374,11 +377,11 @@ orchestration:
 
 See the `examples/` directory:
 
-- `support-triage/` - Customer support ticket classification
-- `dev-team/` - Multi-agent development workflow
-- `browser-screenshot/` - Browser automation with Chrome DevTools MCP
-- `todomvc-python/` - TodoMVC app generation
-- `todomvc-vue/` - Vue.js TodoMVC generation
+- `hello-world/` - The classic get your feet wet demo
+- `tools-demo/` - Run imperative code to get deterministic outputs
+- `branching-demo/` - Evaluate a condition and intelligently choose a path
+- `looping-demo/` - Sub-workflows allow repetitive exeuction without violating the DAG
+- `workflows-demo/` - Workflows are composable
 
 ## License
 
