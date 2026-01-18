@@ -249,6 +249,17 @@ def load_project(path: str | Path) -> Project:
                 else:
                     allowed_tools = []
 
+                # Get execution_mode: node-level overrides project defaults
+                execution_mode = node_spec.get(
+                    "execution_mode",
+                    project.defaults.get("execution_mode", "cli"),
+                )
+                if execution_mode not in ("cli", "sdk"):
+                    raise ValidationError(
+                        f"Agent node '{node_id}' has invalid execution_mode '{execution_mode}'. "
+                        f"Must be 'cli' or 'sdk'."
+                    )
+
                 project.agents[node_id] = AgentNode(
                     id=node_id,
                     prompt_path=node_spec.get("prompt", f"prompts/{node_id}.prompt"),
@@ -257,6 +268,7 @@ def load_project(path: str | Path) -> Project:
                     max_turns=node_spec.get("max_turns", 50),
                     permission_mode=node_spec.get("permission_mode", "acceptEdits"),
                     cwd=node_spec.get("cwd"),
+                    execution_mode=execution_mode,
                 )
             elif node_type == "branch":
                 # Parse branch node configuration (sub-workflow calls)

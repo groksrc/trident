@@ -89,7 +89,17 @@ class RunManifest:
         path.write_text(json.dumps(data, indent=2))
 
     def add_run(self, entry: RunEntry) -> None:
-        """Add a new run entry."""
+        """Add or update a run entry (upsert).
+
+        If a run with the same run_id exists, updates it.
+        Otherwise, appends a new entry.
+        """
+        for i, run in enumerate(self.runs):
+            if run.run_id == entry.run_id:
+                # Update existing entry
+                self.runs[i] = entry
+                return
+        # No existing entry, append new one
         self.runs.append(entry)
 
     def update_run(self, run_id: str, **updates: Any) -> None:

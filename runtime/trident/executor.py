@@ -32,6 +32,9 @@ except ImportError:
             "Agent execution requires Claude Agent SDK. Install with: pip install trident[agents]"
         )
 
+# CLI-based agent execution (alternative to SDK)
+from .cli_agents import execute_agent_via_cli
+
 
 @dataclass
 class NodeTrace:
@@ -1016,7 +1019,7 @@ def _execute_agent_node(
     resume_session: str | None = None,
     on_message: Callable[[str, Any], None] | None = None,
 ) -> None:
-    """Execute an agent node via Claude Agent SDK. Raises on error."""
+    """Execute an agent node via Claude CLI or Agent SDK. Raises on error."""
     agent_node = project.agents.get(node_id)
     if not agent_node:
         raise TridentError("Agent definition not found in project")
@@ -1053,16 +1056,32 @@ def _execute_agent_node(
         node_trace.tokens = {"input": 0, "output": 0}
         return
 
-    # Execute agent via SDK
-    result = execute_agent(
-        agent_node=agent_node,
-        inputs=gathered,
-        project_root=str(project.root),
-        resume_session=resume_session,
-        on_message=on_message,
-    )
+    # Execute agent via CLI or SDK based on execution_mode
+    if agent_node.execution_mode == "cli":
+        # CLI mode: uses existing Claude subscription
+        result = execute_agent_via_cli(
+            agent_node=agent_node,
+            inputs=gathered,
+            project_root=str(project.root),
+            resume_session=resume_session,
+        )
+    else:
+        # SDK mode: uses API tokens
+        if not AGENT_SDK_AVAILABLE:
+            raise TridentError(
+                "Agent SDK not available. Either:\n"
+                "  1. Install with: pip install trident[agents]\n"
+                "  2. Use execution_mode: cli in your manifest"
+            )
+        result = execute_agent(
+            agent_node=agent_node,
+            inputs=gathered,
+            project_root=str(project.root),
+            resume_session=resume_session,
+            on_message=on_message,
+        )
 
-    # Extract output and metrics from AgentResult
+    # Extract output and metrics from AgentResult/CLIAgentResult
     node_trace.output = result.output
     node_trace.tokens = result.tokens
     node_trace.cost_usd = result.cost_usd

@@ -56,10 +56,14 @@ class MCPServerConfig:
 
 @dataclass
 class AgentNode:
-    """Agent node definition - executes via Claude Agent SDK.
+    """Agent node definition - executes via Claude CLI or Agent SDK.
 
     Agent nodes have access to tools and MCP servers, enabling
     autonomous multi-turn execution with real-world interactions.
+
+    The execution_mode controls which backend is used:
+    - "cli": Claude CLI (default - uses existing Claude subscription)
+    - "sdk": Claude Agent SDK (requires API key, pay-per-token)
     """
 
     id: str
@@ -69,6 +73,7 @@ class AgentNode:
     max_turns: int = 50  # Default limit for agent iterations
     permission_mode: str = "acceptEdits"  # Auto-accept file edits
     cwd: str | None = None  # Working directory for agent
+    execution_mode: str = "cli"  # "cli" (default) or "sdk"
     # Parsed prompt content (loaded at runtime)
     prompt_node: PromptNode | None = None
 

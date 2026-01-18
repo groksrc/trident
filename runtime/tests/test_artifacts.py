@@ -116,6 +116,65 @@ class TestRunManifest(unittest.TestCase):
         self.assertEqual(run.status, "completed")
         self.assertTrue(run.success)
 
+    def test_add_run_upserts_existing(self):
+        """add_run updates existing entry instead of creating duplicate."""
+        manifest = RunManifest()
+
+        # Add initial run
+        manifest.add_run(
+            RunEntry(
+                run_id="run-1",
+                project_name="test",
+                entrypoint="input",
+                status="running",
+                started_at="2024-01-01T00:00:00Z",
+            )
+        )
+        self.assertEqual(len(manifest.runs), 1)
+
+        # Add same run_id again (simulating resume)
+        manifest.add_run(
+            RunEntry(
+                run_id="run-1",
+                project_name="test",
+                entrypoint="input",
+                status="running",
+                started_at="2024-01-01T01:00:00Z",  # Later time
+            )
+        )
+
+        # Should still have only one entry (upsert, not duplicate)
+        self.assertEqual(len(manifest.runs), 1)
+        self.assertEqual(manifest.runs[0].started_at, "2024-01-01T01:00:00Z")
+
+    def test_add_run_appends_new(self):
+        """add_run appends new entries with different run_id."""
+        manifest = RunManifest()
+
+        manifest.add_run(
+            RunEntry(
+                run_id="run-1",
+                project_name="test",
+                entrypoint=None,
+                status="completed",
+                started_at="2024-01-01T00:00:00Z",
+            )
+        )
+        manifest.add_run(
+            RunEntry(
+                run_id="run-2",
+                project_name="test",
+                entrypoint=None,
+                status="running",
+                started_at="2024-01-02T00:00:00Z",
+            )
+        )
+
+        # Should have two distinct entries
+        self.assertEqual(len(manifest.runs), 2)
+        self.assertEqual(manifest.runs[0].run_id, "run-1")
+        self.assertEqual(manifest.runs[1].run_id, "run-2")
+
 
 class TestArtifactManager(unittest.TestCase):
     """Tests for ArtifactManager class."""

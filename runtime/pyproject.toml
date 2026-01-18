@@ -1,7 +1,7 @@
 [project]
 name = "trident"
-version = "0.9.3"
-description = "Python runtime for LLM agent orchestration with Claude Agent SDK support"
+version = "0.10.0"
+description = "Python runtime for LLM agent orchestration with Claude CLI and Agent SDK support"
 requires-python = ">=3.12"
 license = {text = "MIT"}
 authors = [
