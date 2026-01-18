@@ -60,6 +60,39 @@ class CLIAgentError(TridentError):
     pass
 
 
+def _build_mcp_config(mcp_servers: dict) -> dict[str, Any]:
+    """Build MCP config dict for Claude CLI --mcp-config flag.
+
+    Args:
+        mcp_servers: Dict of server name to MCPServerConfig objects
+
+    Returns:
+        Dict in the format expected by Claude CLI's --mcp-config
+    """
+    config: dict[str, Any] = {"mcpServers": {}}
+
+    for server_name, server_config in mcp_servers.items():
+        # Expand environment variables in server env
+        server_env = {}
+        for key, value in server_config.env.items():
+            if value.startswith("${") and value.endswith("}"):
+                env_var = value[2:-1]
+                server_env[key] = os.environ.get(env_var, "")
+            else:
+                server_env[key] = value
+
+        server_dict: dict[str, Any] = {
+            "command": server_config.command,
+            "args": server_config.args,
+        }
+        if server_env:
+            server_dict["env"] = server_env
+
+        config["mcpServers"][server_name] = server_dict
+
+    return config
+
+
 def check_cli_available() -> str:
     """Check if Claude CLI is available and return the path.
 
@@ -150,17 +183,11 @@ def execute_agent_via_cli(
     # Determine working directory
     cwd = agent_node.cwd or project_root
 
-    # Note: MCP servers are not configurable per-invocation in CLI mode
-    # They use the global ~/.claude/settings.json configuration
+    # Add MCP servers via --mcp-config flag
     if agent_node.mcp_servers:
-        # Log a warning but continue - this is a known limitation
-        import sys
-
-        print(
-            f"[trident] Warning: Agent '{agent_node.id}' has MCP servers configured, "
-            "but CLI mode uses global MCP config from ~/.claude/settings.json",
-            file=sys.stderr,
-        )
+        mcp_config = _build_mcp_config(agent_node.mcp_servers)
+        if mcp_config:
+            cmd.extend(["--mcp-config", json.dumps(mcp_config)])
 
     # Build environment without ANTHROPIC_API_KEY so CLI uses subscription auth
     # instead of pay-per-token API mode
