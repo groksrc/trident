@@ -82,6 +82,23 @@ uv run python -m trident project run ../examples/workflows-demo \
   --verbose
 ```
 
+### 6. browser-mcp
+**Concepts:** MCP servers, browser automation, CLI execution mode
+
+Demonstrates browser automation using the chrome-devtools MCP server.
+
+**Prerequisites:** Start Chrome with remote debugging:
+```bash
+/Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome \
+  --remote-debugging-port=9222 \
+  --user-data-dir=$HOME/chrome-debug-profile
+```
+
+```bash
+uv run python -m trident project run ../examples/browser-mcp \
+  --input '{"url": "https://example.com"}'
+```
+
 ## Project Structure
 
 Each example follows this structure:

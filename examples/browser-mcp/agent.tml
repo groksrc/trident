@@ -1,0 +1,58 @@
+trident: "0.1"
+name: browser-mcp
+description: Example demonstrating browser automation via MCP server
+
+# This example shows how to use the chrome-devtools MCP server
+# to automate browser interactions.
+#
+# Prerequisites:
+#   1. Start Chrome with remote debugging enabled:
+#      /Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome \
+#        --remote-debugging-port=9222 \
+#        --user-data-dir=$HOME/chrome-debug-profile
+#
+#   2. Run the workflow:
+#      trident project run --input '{"url": "https://example.com"}'
+
+nodes:
+  input:
+    type: input
+    schema:
+      url:
+        type: string
+        description: URL to navigate to and test
+
+  browser:
+    type: agent
+    prompt: prompts/browser.prompt
+    execution_mode: cli
+    permission_mode: bypassPermissions
+    mcp_servers:
+      chrome-devtools:
+        command: npx
+        args: ["-y", "chrome-devtools-mcp@latest", "--browserUrl", "http://127.0.0.1:9222"]
+    allowed_tools:
+      - mcp__chrome-devtools__navigate_page
+      - mcp__chrome-devtools__take_snapshot
+      - mcp__chrome-devtools__take_screenshot
+      - mcp__chrome-devtools__click
+      - mcp__chrome-devtools__wait_for
+    max_turns: 15
+
+  output:
+    type: output
+    format: json
+
+edges:
+  input_to_browser:
+    from: input
+    to: browser
+    mapping:
+      url: url
+
+  browser_to_output:
+    from: browser
+    to: output
+    mapping:
+      success: success
+      message: message

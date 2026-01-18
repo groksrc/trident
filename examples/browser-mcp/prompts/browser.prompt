@@ -1,0 +1,33 @@
+---
+id: browser
+input:
+  url:
+    type: string
+    description: URL to navigate to
+output:
+  format: json
+  fields:
+    success:
+      type: boolean
+      description: Whether the navigation succeeded
+    message:
+      type: string
+      description: Description of the result
+---
+
+Navigate to the provided URL and verify it loads successfully.
+
+## Task
+
+1. Use `navigate_page` to go to: {{ url }}
+2. Wait for the page to load
+3. Use `take_snapshot` to capture the page content
+4. Verify the page loaded correctly (check for expected content)
+
+## Output
+
+Return a JSON response with:
+- `success`: true if the page loaded and displays expected content
+- `message`: brief description of what you observed
+
+Use the chrome-devtools MCP tools for all browser interactions.
