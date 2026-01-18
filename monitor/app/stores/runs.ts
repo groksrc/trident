@@ -244,6 +244,28 @@ export const useRunsStore = defineStore('runs', {
       if (this.currentRunId !== runId || !this.currentRunDetails) return
       this.currentRunDetails.checkpoint = checkpoint
     },
+
+    async deleteRun(runId: string, projectPath: string) {
+      try {
+        await $fetch(`/api/runs/${runId}`, {
+          method: 'DELETE',
+          query: { project: projectPath },
+        })
+
+        // Remove from local state
+        this.runs = this.runs.filter(r => r.run_id !== runId)
+
+        // Clear current run if it was deleted
+        if (this.currentRunId === runId) {
+          this.clearCurrentRun()
+        }
+
+        return true
+      } catch (error) {
+        console.error('Failed to delete run:', error)
+        throw error
+      }
+    },
   },
 })
 

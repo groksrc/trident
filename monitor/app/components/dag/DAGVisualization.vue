@@ -91,11 +91,11 @@ const flowNodes = computed<Node[]>(() => {
     levelGroups.get(level)!.push(nodeId)
   })
 
-  // Position nodes
-  const nodeWidth = 160
-  const nodeHeight = 80
-  const horizontalSpacing = 60
-  const verticalSpacing = 100
+  // Position nodes - top-to-bottom layout
+  const nodeWidth = 200
+  const nodeHeight = 100
+  const horizontalSpacing = 100
+  const verticalSpacing = 120
 
   const positions = new Map<string, { x: number; y: number }>()
   levelGroups.forEach((nodeIds, level) => {

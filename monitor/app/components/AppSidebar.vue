@@ -70,6 +70,18 @@ async function refreshRuns() {
   await runs.fetchRuns(projects.projectPath)
 }
 
+async function handleDeleteRun(runId: string) {
+  if (!projects.projectPath) return
+  if (!confirm('Delete this run? This cannot be undone.')) return
+
+  try {
+    await runs.deleteRun(runId, projects.projectPath)
+    ui.showSuccess('Run deleted')
+  } catch (error) {
+    ui.showError('Failed to delete run')
+  }
+}
+
 function goHome() {
   projects.clearProject()
   runs.clearCurrentRun()
@@ -228,6 +240,7 @@ function goHome() {
             :run="run"
             :selected="run.run_id === runs.currentRunId"
             @select="handleSelectRun(run.run_id)"
+            @delete="handleDeleteRun(run.run_id)"
           />
         </div>
       </div>

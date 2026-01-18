@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { CheckCircle, XCircle, Circle, Loader2, AlertCircle } from 'lucide-vue-next'
+import { CheckCircle, XCircle, Circle, Loader2, AlertCircle, Trash2 } from 'lucide-vue-next'
 import type { RunEntry } from '~/stores/runs'
 import { useTimeAgo } from '@vueuse/core'
 
@@ -10,7 +10,15 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   select: []
+  delete: []
 }>()
+
+const isHovered = ref(false)
+
+function handleDelete(event: MouseEvent) {
+  event.stopPropagation()
+  emit('delete')
+}
 
 const timeAgo = useTimeAgo(() => new Date(props.run.started_at))
 
@@ -72,8 +80,8 @@ const statusLabel = computed(() => {
 </script>
 
 <template>
-  <button
-    class="flex w-full items-center gap-2 rounded-md border px-2 py-2 text-sm transition-all"
+  <div
+    class="group flex w-full items-center gap-2 rounded-md border px-2 py-2 text-sm transition-all cursor-pointer"
     :class="[
       selected ? statusBg : 'border-transparent hover:bg-accent/50 hover:border-border',
     ]"
@@ -118,5 +126,14 @@ const statusLabel = computed(() => {
         </span>
       </div>
     </div>
-  </button>
+
+    <!-- Delete button (visible on hover) -->
+    <button
+      class="shrink-0 p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-red-100 hover:text-red-600 text-muted-foreground transition-all"
+      title="Delete run"
+      @click="handleDelete"
+    >
+      <Trash2 class="h-3.5 w-3.5" />
+    </button>
+  </div>
 </template>

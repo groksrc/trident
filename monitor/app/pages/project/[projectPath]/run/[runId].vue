@@ -3,6 +3,11 @@ import { useProjectsStore } from '~/stores/projects'
 import { useRunsStore, type WorkflowNode } from '~/stores/runs'
 import { useUIStore } from '~/stores/ui'
 
+// Lazy load DAG visualization to avoid importing Vue Flow on server
+const LazyDAGVisualization = defineAsyncComponent(() =>
+  import('~/components/dag/DAGVisualization.vue')
+)
+
 const projects = useProjectsStore()
 const runs = useRunsStore()
 const ui = useUIStore()
@@ -125,19 +130,29 @@ const isLoading = computed(() => pending.value || (!hasWorkflowData.value && run
         </div>
       </div>
 
-      <!-- DAG component -->
+      <!-- DAG component (lazy loaded to avoid Vue Flow on server) -->
       <ClientOnly v-else-if="hasWorkflowData">
-        <DAGVisualization
-          :nodes="runs.workflowData!.nodes"
-          :edges="runs.workflowData!.edges"
-          :selected-node-id="ui.selectedNodeId"
-          @node-click="handleNodeClick"
-        />
+        <Suspense>
+          <LazyDAGVisualization
+            :nodes="runs.workflowData!.nodes"
+            :edges="runs.workflowData!.edges"
+            :selected-node-id="ui.selectedNodeId"
+            @node-click="handleNodeClick"
+          />
+          <template #fallback>
+            <div class="h-full flex items-center justify-center bg-muted/20">
+              <div class="text-center p-8">
+                <div class="animate-spin h-8 w-8 border-2 border-primary border-t-transparent rounded-full mx-auto" />
+                <p class="mt-4 text-sm text-muted-foreground">Loading visualization...</p>
+              </div>
+            </div>
+          </template>
+        </Suspense>
         <template #fallback>
           <div class="h-full flex items-center justify-center bg-muted/20">
             <div class="text-center p-8">
               <div class="animate-spin h-8 w-8 border-2 border-primary border-t-transparent rounded-full mx-auto" />
-              <p class="mt-4 text-sm text-muted-foreground">Initializing visualization...</p>
+              <p class="mt-4 text-sm text-muted-foreground">Initializing...</p>
             </div>
           </div>
         </template>

@@ -63,4 +63,24 @@ export default defineNuxtConfig({
       appName: 'Trident Monitor',
     },
   },
+
+  // Vite optimization - pre-bundle heavy dependencies at startup
+  vite: {
+    optimizeDeps: {
+      include: [
+        '@vue-flow/core',
+        '@vue-flow/background',
+        '@vue-flow/controls',
+        '@vue-flow/minimap',
+        'd3-selection',
+        'd3-zoom',
+        'd3-drag',
+        'lucide-vue-next',
+      ],
+    },
+    // SSR optimization - externalize large packages to avoid re-bundling
+    ssr: {
+      noExternal: ['@vue-flow/core', '@vue-flow/background', '@vue-flow/controls', '@vue-flow/minimap'],
+    },
+  },
 })

@@ -107,13 +107,20 @@ export default defineEventHandler(async (event) => {
     }
   }
 
-  // Get all node IDs from both sources
+  // Get all node IDs from all sources (definition, trace, and edge references)
   const nodeIds = new Set<string>()
   if (agentDef?.nodes) {
     Object.keys(agentDef.nodes).forEach((id) => nodeIds.add(id))
   }
   if (trace?.nodes) {
     trace.nodes.forEach((n) => nodeIds.add(n.id))
+  }
+  // Also add any nodes referenced in edges but not in the nodes list
+  if (agentDef?.edges) {
+    for (const edge of Object.values(agentDef.edges)) {
+      nodeIds.add(edge.from)
+      nodeIds.add(edge.to)
+    }
   }
 
   // Build workflow nodes

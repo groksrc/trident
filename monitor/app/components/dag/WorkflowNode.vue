@@ -96,7 +96,7 @@ const formatDuration = (ms: number | null) => {
     class="min-w-[140px] rounded-lg border-2 shadow-sm transition-all"
     :class="[borderColor, bgColor]"
   >
-    <!-- Source handle (top) -->
+    <!-- Target handle (top) -->
     <Handle
       type="target"
       :position="Position.Top"
@@ -133,7 +133,7 @@ const formatDuration = (ms: number | null) => {
       </div>
     </div>
 
-    <!-- Target handle (bottom) -->
+    <!-- Source handle (bottom) -->
     <Handle
       type="source"
       :position="Position.Bottom"
