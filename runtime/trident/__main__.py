@@ -186,9 +186,7 @@ def main() -> int:
     signals_parser = project_subparsers.add_parser(
         "signals", help="View and manage orchestration signals"
     )
-    signals_parser.add_argument(
-        "path", nargs="?", default=".", help="Path to project (default: .)"
-    )
+    signals_parser.add_argument("path", nargs="?", default=".", help="Path to project (default: .)")
     signals_parser.add_argument(
         "--clear",
         action="store_true",
@@ -772,34 +770,34 @@ def cmd_project_schedule(args) -> int:
     elif args.format == "launchd":
         # Generate launchd plist
         label = f"com.trident.{project.name}"
-        print(f'<?xml version="1.0" encoding="UTF-8"?>')
+        print('<?xml version="1.0" encoding="UTF-8"?>')
         print(
             '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
             '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">'
         )
         print('<plist version="1.0">')
         print("<dict>")
-        print(f"    <key>Label</key>")
+        print("    <key>Label</key>")
         print(f"    <string>{label}</string>")
-        print(f"    <key>WorkingDirectory</key>")
+        print("    <key>WorkingDirectory</key>")
         print(f"    <string>{project_path}</string>")
-        print(f"    <key>ProgramArguments</key>")
-        print(f"    <array>")
-        print(f"        <string>/usr/bin/python</string>")
-        print(f"        <string>-m</string>")
-        print(f"        <string>trident</string>")
-        print(f"        <string>project</string>")
-        print(f"        <string>run</string>")
-        print(f"        <string>--emit-signal</string>")
-        print(f"    </array>")
-        print(f"    <key>StartCalendarInterval</key>")
+        print("    <key>ProgramArguments</key>")
+        print("    <array>")
+        print("        <string>/usr/bin/python</string>")
+        print("        <string>-m</string>")
+        print("        <string>trident</string>")
+        print("        <string>project</string>")
+        print("        <string>run</string>")
+        print("        <string>--emit-signal</string>")
+        print("    </array>")
+        print("    <key>StartCalendarInterval</key>")
         print(f"    <!-- Adjust based on cron: {cron_expr} -->")
-        print(f"    <dict>")
-        print(f"        <key>Hour</key>")
-        print(f"        <integer>0</integer>")
-        print(f"        <key>Minute</key>")
-        print(f"        <integer>0</integer>")
-        print(f"    </dict>")
+        print("    <dict>")
+        print("        <key>Hour</key>")
+        print("        <integer>0</integer>")
+        print("        <key>Minute</key>")
+        print("        <integer>0</integer>")
+        print("    </dict>")
         print("</dict>")
         print("</plist>")
 

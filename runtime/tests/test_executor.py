@@ -411,8 +411,8 @@ class TestStartFrom(unittest.TestCase):
         """start_from with invalid node raises TridentError."""
         import json
         import tempfile
+
         from trident.errors import TridentError
-        from trident.executor import Checkpoint
 
         project = Project(name="test", root=Path("."))
         project.input_nodes["input"] = InputNode(id="input")
@@ -447,6 +447,7 @@ class TestStartFrom(unittest.TestCase):
             self.assertIn("Start-from node not found", str(ctx.exception))
         finally:
             import os
+
             os.unlink(checkpoint_path)
 
 

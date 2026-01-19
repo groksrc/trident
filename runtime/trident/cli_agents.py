@@ -193,19 +193,26 @@ def execute_agent_via_cli(
     # instead of pay-per-token API mode
     env = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}
 
+    # Debug: print command being run
+    import sys
+
+    print(f"DEBUG: Running CLI command in cwd={cwd}", file=sys.stderr)
+    print(
+        f"DEBUG: Command: {' '.join(cmd[:5])}... (prompt length: {len(cmd[2]) if len(cmd) > 2 else 0})",
+        file=sys.stderr,
+    )
+
     try:
         result = subprocess.run(
             cmd,
             cwd=cwd,
             capture_output=True,
             text=True,
-            timeout=600,  # 10 minute timeout (matches CLI default)
+            timeout=1200,  # 20 minute timeout for complex tasks
             env=env,
         )
     except subprocess.TimeoutExpired as e:
-        raise CLIAgentError(
-            f"Agent '{agent_node.id}' timed out after 10 minutes"
-        ) from e
+        raise CLIAgentError(f"Agent '{agent_node.id}' timed out after 10 minutes") from e
     except Exception as e:
         raise CLIAgentError(f"Failed to execute Claude CLI: {e}") from e
 
@@ -225,12 +232,20 @@ def execute_agent_via_cli(
             f"Output preview: {result.stdout[:500]!r}"
         ) from e
 
+    # Debug: print CLI output
+    import sys
+
+    print(
+        f"DEBUG CLI output for {agent_node.id}: is_error={cli_output.get('is_error')}, result_len={len(cli_output.get('result', ''))}",
+        file=sys.stderr,
+    )
+    if cli_output.get("is_error"):
+        print(f"DEBUG CLI error result: {cli_output.get('result', '')[:500]}", file=sys.stderr)
+
     # Check for CLI-level errors
     if cli_output.get("is_error"):
         error_result = cli_output.get("result", "Unknown CLI error")
-        raise CLIAgentError(
-            f"Agent '{agent_node.id}' CLI reported error: {error_result}"
-        )
+        raise CLIAgentError(f"Agent '{agent_node.id}' CLI reported error: {error_result}")
 
     # Extract result from CLI output format
     # CLI JSON format: {result: string, session_id: string, usage: {...}, total_cost_usd: float}

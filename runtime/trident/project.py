@@ -82,7 +82,9 @@ class Project:
     tools: dict[str, ToolDef] = field(default_factory=dict)
     agents: dict[str, AgentNode] = field(default_factory=dict)  # Agent nodes (SPEC-3)
     branches: dict[str, BranchNode] = field(default_factory=dict)  # Branch nodes (sub-workflows)
-    triggers: dict[str, TriggerNode] = field(default_factory=dict)  # Trigger nodes (downstream workflows)
+    triggers: dict[str, TriggerNode] = field(
+        default_factory=dict
+    )  # Trigger nodes (downstream workflows)
     env: dict[str, dict[str, Any]] = field(default_factory=dict)
     orchestration: OrchestrationConfig | None = None  # Workflow orchestration config
 

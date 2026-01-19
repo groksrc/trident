@@ -3,7 +3,14 @@
 import unittest
 from pathlib import Path
 
-from trident.dag import DAGError, _get_node_symbol, build_dag, get_ancestors, visualize_dag, visualize_dag_mermaid
+from trident.dag import (
+    DAGError,
+    _get_node_symbol,
+    build_dag,
+    get_ancestors,
+    visualize_dag,
+    visualize_dag_mermaid,
+)
 from trident.parser import BranchNode, PromptNode
 from trident.project import Edge, InputNode, OutputNode, Project
 

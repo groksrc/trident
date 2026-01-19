@@ -1,7 +1,9 @@
 """DAG execution engine."""
 
 import asyncio
+import contextlib
 import json
+import os
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
@@ -13,7 +15,7 @@ from .artifacts import ArtifactManager, RunMetadata, get_artifact_manager
 from .conditions import evaluate
 from .dag import DAG, build_dag, get_ancestors, validate_edge_mappings
 from .errors import BranchError, NodeExecutionError, SchemaValidationError, TridentError
-from .parser import PromptNode, TriggerNode, parse_prompt_file
+from .parser import PromptNode, parse_prompt_file
 from .project import Edge, Project
 from .providers import CompletionConfig, get_registry, setup_providers
 from .template import get_nested, render
@@ -31,6 +33,7 @@ except ImportError:
         raise TridentError(
             "Agent execution requires Claude Agent SDK. Install with: pip install trident[agents]"
         )
+
 
 # CLI-based agent execution (alternative to SDK)
 from .cli_agents import execute_agent_via_cli
@@ -424,7 +427,9 @@ def run(
 
     # Validate start_from requires resume_from
     if start_from and not resume_from:
-        raise TridentError("--start-from requires --resume to specify which run to use cached outputs from")
+        raise TridentError(
+            "--start-from requires --resume to specify which run to use cached outputs from"
+        )
 
     # Determine entrypoint - fail early if none
     if entrypoint is None:
@@ -477,7 +482,9 @@ def run(
             if verbose:
                 print(f"Starting from node: {start_from}")
                 print(f"  Keeping {len(filtered_nodes)} of {original_count} cached nodes")
-                print(f"  Re-executing: {start_from} and {original_count - len(filtered_nodes) - 1} downstream nodes")
+                print(
+                    f"  Re-executing: {start_from} and {original_count - len(filtered_nodes) - 1} downstream nodes"
+                )
         elif verbose:
             completed = len(checkpoint.completed_nodes)
             print(f"Resuming from checkpoint: {checkpoint.run_id}")
@@ -1373,9 +1380,7 @@ def _execute_trigger_node(
         import tempfile
 
         # Write gathered inputs to temp file for downstream workflow
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".json", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
             json.dump(gathered, f)
             input_json_path = f.name
 
@@ -1436,9 +1441,7 @@ def _execute_trigger_node(
             )
 
             if not sub_result.success:
-                raise TridentError(
-                    f"Triggered workflow failed: {sub_result.error}"
-                )
+                raise TridentError(f"Triggered workflow failed: {sub_result.error}")
 
             # Flatten outputs from sub-workflow
             raw_outputs = sub_result.outputs
@@ -1462,16 +1465,12 @@ def _execute_trigger_node(
             }
 
             if verbose:
-                print(f"  Triggered workflow completed successfully")
+                print("  Triggered workflow completed successfully")
 
         except Exception as e:
             raise TridentError(f"Triggered workflow failed: {e}") from e
 
     # Clean up temp file
     if input_json_path:
-        import os
-
-        try:
+        with contextlib.suppress(OSError):
             os.unlink(input_json_path)
-        except OSError:
-            pass

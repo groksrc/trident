@@ -681,7 +681,9 @@ def visualize_dag(dag: DAG) -> str:
             lines.append("")
 
     lines.append("")
-    lines.append("Legend: [I] Input, [P] Prompt, [T] Tool, [A] Agent, [B] Branch, [R] Trigger, [O] Output")
+    lines.append(
+        "Legend: [I] Input, [P] Prompt, [T] Tool, [A] Agent, [B] Branch, [R] Trigger, [O] Output"
+    )
 
     return "\n".join(lines)
 
