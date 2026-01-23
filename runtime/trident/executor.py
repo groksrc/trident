@@ -8,7 +8,7 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from .artifacts import ArtifactManager, RunMetadata, get_artifact_manager
@@ -20,6 +20,9 @@ from .project import Edge, Project
 from .providers import CompletionConfig, get_registry, setup_providers
 from .template import get_nested, render
 from .tools.python import PythonToolRunner
+
+if TYPE_CHECKING:
+    from .telemetry import TelemetryConfig
 
 # Agent execution (optional - requires trident[agents])
 try:
@@ -380,6 +383,7 @@ def run(
     start_from: str | None = None,
     emit_signals: bool = False,
     publish_to: str | None = None,
+    telemetry_config: "TelemetryConfig | None" = None,
 ) -> ExecutionResult:
     """Execute a Trident project.
 
@@ -399,6 +403,7 @@ def run(
             Only ancestors of this node will be treated as completed.
         emit_signals: If True, emit orchestration signals (started/completed/failed/ready)
         publish_to: Override path for publishing outputs (CLI override)
+        telemetry_config: Optional telemetry configuration for real-time event streaming
 
     Returns:
         ExecutionResult with outputs and trace. Always returns, even on failure.
@@ -410,6 +415,14 @@ def run(
     # Initialize providers
     setup_providers()
     registry = get_registry()
+
+    # Initialize telemetry if configured
+    telemetry_emitter = None
+    if telemetry_config and telemetry_config.enabled:
+        from .telemetry import TelemetryEmitter, set_emitter
+
+        telemetry_emitter = TelemetryEmitter(telemetry_config)
+        set_emitter(telemetry_emitter)
 
     # Build DAG - this can raise DAGError for cycles/invalid structure
     dag = build_dag(project)
@@ -513,6 +526,21 @@ def run(
         effective_run_id = str(uuid4())
 
     trace = ExecutionTrace(run_id=effective_run_id, start_time=_now_iso())
+
+    # Emit workflow started event
+    if telemetry_emitter:
+        from .telemetry import EventType, TelemetryLevel
+
+        telemetry_emitter.emit(
+            EventType.WORKFLOW_STARTED,
+            run_id=effective_run_id,
+            data={
+                "name": project.name,
+                "entrypoint": entrypoint,
+                "dry_run": dry_run,
+            },
+            level=TelemetryLevel.INFO,
+        )
     node_outputs: dict[str, dict[str, Any]] = {}
     tool_runner = PythonToolRunner(project.root)
     execution_error: NodeExecutionError | None = None
@@ -630,6 +658,7 @@ def run(
                     checkpoint_dir=checkpoint_dir,
                     artifact_manager=artifact_manager,
                     checkpoint=checkpoint,
+                    run_id=effective_run_id,
                 )
                 for node_id in nodes_to_execute
             ]
@@ -681,6 +710,21 @@ def run(
                         elif checkpoint_path_obj:
                             checkpoint.save(checkpoint_path_obj)
 
+                        # Emit checkpoint saved event
+                        if telemetry_emitter:
+                            from .telemetry import EventType, TelemetryLevel
+
+                            telemetry_emitter.emit(
+                                EventType.CHECKPOINT_SAVED,
+                                run_id=effective_run_id,
+                                data={
+                                    "completed_nodes": len(checkpoint.completed_nodes),
+                                    "pending_nodes": len(checkpoint.pending_nodes),
+                                    "total_cost_usd": checkpoint.total_cost_usd,
+                                },
+                                level=TelemetryLevel.INFO,
+                            )
+
     # Run the async execution
     asyncio.run(_execute_levels())
 
@@ -698,6 +742,44 @@ def run(
                 break
 
     trace.end_time = _now_iso()
+
+    # Emit workflow completion/failure event
+    if telemetry_emitter:
+        from .telemetry import EventType, TelemetryLevel
+
+        if execution_error:
+            telemetry_emitter.emit(
+                EventType.WORKFLOW_FAILED,
+                run_id=effective_run_id,
+                data={
+                    "name": project.name,
+                    "error": str(execution_error),
+                    "duration_ms": int(
+                        (
+                            datetime.fromisoformat(trace.end_time)
+                            - datetime.fromisoformat(trace.start_time)
+                        ).total_seconds()
+                        * 1000
+                    ),
+                },
+                level=TelemetryLevel.ERROR,
+            )
+        else:
+            telemetry_emitter.emit(
+                EventType.WORKFLOW_COMPLETED,
+                run_id=effective_run_id,
+                data={
+                    "name": project.name,
+                    "duration_ms": int(
+                        (
+                            datetime.fromisoformat(trace.end_time)
+                            - datetime.fromisoformat(trace.start_time)
+                        ).total_seconds()
+                        * 1000
+                    ),
+                },
+                level=TelemetryLevel.INFO,
+            )
 
     # Final checkpoint update
     if checkpoint:
@@ -761,6 +843,20 @@ def run(
                 )
                 if verbose:
                     print(f"Signal emitted: {project.name}.failed")
+
+                # Emit telemetry signal event
+                if telemetry_emitter:
+                    from .telemetry import EventType, TelemetryLevel
+
+                    telemetry_emitter.emit(
+                        EventType.SIGNAL_EMITTED,
+                        run_id=effective_run_id,
+                        data={
+                            "signal_type": "failed",
+                            "workflow": project.name,
+                        },
+                        level=TelemetryLevel.INFO,
+                    )
             else:
                 artifact_manager.emit_signal(
                     "completed",
@@ -775,10 +871,39 @@ def run(
                 if verbose:
                     print(f"Signals emitted: {project.name}.completed, {project.name}.ready")
 
+                # Emit telemetry signal events
+                if telemetry_emitter:
+                    from .telemetry import EventType, TelemetryLevel
+
+                    telemetry_emitter.emit(
+                        EventType.SIGNAL_EMITTED,
+                        run_id=effective_run_id,
+                        data={
+                            "signal_type": "completed",
+                            "workflow": project.name,
+                        },
+                        level=TelemetryLevel.INFO,
+                    )
+                    telemetry_emitter.emit(
+                        EventType.SIGNAL_EMITTED,
+                        run_id=effective_run_id,
+                        data={
+                            "signal_type": "ready",
+                            "workflow": project.name,
+                        },
+                        level=TelemetryLevel.INFO,
+                    )
+
         if verbose:
             print(f"Artifacts saved to: {artifact_manager.run_dir}")
 
     result = ExecutionResult(outputs=final_outputs, trace=trace, error=execution_error)
+
+    # Close telemetry emitter
+    if telemetry_emitter:
+        telemetry_emitter.close()
+        set_emitter(None)
+
     return result
 
 
@@ -796,10 +921,22 @@ async def _execute_node_async(
     checkpoint_dir: str | Path | None,
     artifact_manager: ArtifactManager | None,
     checkpoint: "Checkpoint | None",
+    run_id: str,
 ) -> _NodeExecutionResult:
     """Execute a single node asynchronously. Returns result without raising."""
     node = dag.nodes[node_id]
     node_trace = NodeTrace(id=node_id, start_time=_now_iso())
+
+    # Emit node_started event
+    from .telemetry import EventType, TelemetryLevel, emit
+
+    emit(
+        EventType.NODE_STARTED,
+        run_id=run_id,
+        node_id=node_id,
+        data={"type": node.type},
+        level=TelemetryLevel.INFO,
+    )
 
     try:
         if verbose:
@@ -816,6 +953,16 @@ async def _execute_node_async(
         if not should_run:
             node_trace.skipped = True
             node_trace.end_time = _now_iso()
+
+            # Emit node_skipped event
+            emit(
+                EventType.NODE_SKIPPED,
+                run_id=run_id,
+                node_id=node_id,
+                data={"reason": "edge_condition_false"},
+                level=TelemetryLevel.INFO,
+            )
+
             return _NodeExecutionResult(
                 node_id=node_id,
                 node_trace=node_trace,
@@ -897,6 +1044,30 @@ async def _execute_node_async(
             )
 
         node_trace.end_time = _now_iso()
+
+        # Calculate duration
+        duration_ms = int(
+            (
+                datetime.fromisoformat(node_trace.end_time)
+                - datetime.fromisoformat(node_trace.start_time)
+            ).total_seconds()
+            * 1000
+        )
+
+        # Emit node_completed event
+        emit(
+            EventType.NODE_COMPLETED,
+            run_id=run_id,
+            node_id=node_id,
+            data={
+                "type": node.type,
+                "duration_ms": duration_ms,
+                "input_tokens": node_trace.tokens.get("input", 0),
+                "output_tokens": node_trace.tokens.get("output", 0),
+            },
+            level=TelemetryLevel.INFO,
+        )
+
         return _NodeExecutionResult(
             node_id=node_id,
             node_trace=node_trace,
@@ -907,6 +1078,20 @@ async def _execute_node_async(
         node_trace.error = str(e)
         node_trace.error_type = type(e).__name__
         node_trace.end_time = _now_iso()
+
+        # Emit node_failed event
+        emit(
+            EventType.NODE_FAILED,
+            run_id=run_id,
+            node_id=node_id,
+            data={
+                "type": node.type,
+                "error": str(e),
+                "error_type": type(e).__name__,
+            },
+            level=TelemetryLevel.ERROR,
+        )
+
         return _NodeExecutionResult(
             node_id=node_id,
             node_trace=node_trace,

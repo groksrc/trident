@@ -120,6 +120,35 @@ def main() -> int:
         default=300.0,
         help="Timeout in seconds for --wait-for (default: 300)",
     )
+    # Telemetry options
+    run_parser.add_argument(
+        "--telemetry",
+        action="store_true",
+        help="Enable real-time telemetry output",
+    )
+    run_parser.add_argument(
+        "--telemetry-format",
+        choices=["jsonl", "human"],
+        default="jsonl",
+        help="Telemetry output format: jsonl (JSON Lines) or human (default: jsonl)",
+    )
+    run_parser.add_argument(
+        "--telemetry-file",
+        dest="telemetry_file",
+        help="Write telemetry to file (in addition to or instead of stdout)",
+    )
+    run_parser.add_argument(
+        "--telemetry-stdout",
+        dest="telemetry_stdout",
+        action="store_true",
+        help="Write telemetry to stdout (default: true unless --telemetry-file is specified alone)",
+    )
+    run_parser.add_argument(
+        "--telemetry-level",
+        choices=["debug", "info", "warning", "error"],
+        default="info",
+        help="Minimum telemetry event level (default: info)",
+    )
 
     # project validate
     validate_parser = project_subparsers.add_parser("validate", help="Validate a Trident project")
@@ -559,6 +588,37 @@ def cmd_project_run(args) -> int:
             print(f"Error: {e}", file=sys.stderr)
             return ExitCode.TIMEOUT
 
+    # Configure telemetry
+    telemetry_enabled = getattr(args, "telemetry", False)
+    telemetry_config = None
+    if telemetry_enabled:
+        from .telemetry import TelemetryConfig, TelemetryLevel
+
+        # Determine stdout behavior
+        telemetry_stdout = args.telemetry_stdout
+        if not telemetry_stdout and not getattr(args, "telemetry_file", None):
+            # Default to stdout if no file specified
+            telemetry_stdout = True
+
+        # Parse level
+        level_map = {
+            "debug": TelemetryLevel.DEBUG,
+            "info": TelemetryLevel.INFO,
+            "warning": TelemetryLevel.WARNING,
+            "error": TelemetryLevel.ERROR,
+        }
+        telemetry_level = level_map.get(
+            getattr(args, "telemetry_level", "info"), TelemetryLevel.INFO
+        )
+
+        telemetry_config = TelemetryConfig(
+            enabled=True,
+            format=getattr(args, "telemetry_format", "jsonl"),
+            file_path=getattr(args, "telemetry_file", None),
+            stdout=telemetry_stdout,
+            level=telemetry_level,
+        )
+
     # Execute
     result = run(
         project,
@@ -572,6 +632,7 @@ def cmd_project_run(args) -> int:
         start_from=args.start_from,
         emit_signals=getattr(args, "emit_signal", False),
         publish_to=getattr(args, "publish_to", None),
+        telemetry_config=telemetry_config,
     )
 
     # Output

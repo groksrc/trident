@@ -912,7 +912,70 @@ python -m trident project run ./my-project --resume latest --start-from refine
 
 # Visualize DAG
 python -m trident project graph ./my-project --format mermaid --open
+
+# Real-time telemetry (JSON Lines format)
+python -m trident project run ./my-project \
+  --input '{"date": "2026-01-05"}' \
+  --telemetry
+
+# Human-readable telemetry
+python -m trident project run ./my-project \
+  --input '{"date": "2026-01-05"}' \
+  --telemetry \
+  --telemetry-format human
+
+# Log telemetry to file
+python -m trident project run ./my-project \
+  --input '{"date": "2026-01-05"}' \
+  --telemetry \
+  --telemetry-file workflow.log
 ```
+
+## Real-Time Telemetry
+
+Trident supports real-time telemetry for workflow observability. See [TELEMETRY.md](./docs/TELEMETRY.md) for full documentation.
+
+### Quick Start
+
+```bash
+# Enable telemetry (JSON Lines to stdout)
+python -m trident project run ./my-project --telemetry
+
+# Human-readable format
+python -m trident project run ./my-project --telemetry --telemetry-format human
+
+# Log to file
+python -m trident project run ./my-project --telemetry --telemetry-file workflow.log
+```
+
+### Event Types
+
+Telemetry emits structured events:
+- **Workflow lifecycle**: `workflow_started`, `workflow_completed`, `workflow_failed`
+- **Node execution**: `node_started`, `node_completed`, `node_failed`, `node_skipped`
+- **State changes**: `checkpoint_saved`, `signal_emitted`
+
+### Monitoring Long-Running Workflows
+
+```bash
+# Start workflow with telemetry to file
+python -m trident project run ./long-workflow --telemetry --telemetry-file /tmp/workflow.log &
+
+# Monitor in another terminal
+tail -f /tmp/workflow.log | grep ERROR
+```
+
+### Performance Analysis
+
+```bash
+# Extract timing for each node
+cat workflow.log | jq -r 'select(.event=="node_completed") | [.node_id, .data.duration_ms] | @csv'
+
+# Find slowest nodes
+cat workflow.log | jq -r 'select(.event=="node_completed") | "\(.data.duration_ms)\t\(.node_id)"' | sort -rn | head -5
+```
+
+For complete telemetry documentation, see [TELEMETRY.md](./docs/TELEMETRY.md).
 
 ## Resuming and Replaying Workflows
 
