@@ -60,6 +60,61 @@ class CLIAgentError(TridentError):
     pass
 
 
+def _build_json_schema(output_schema) -> dict[str, Any]:
+    """Build JSON Schema for Claude CLI --json-schema flag.
+
+    Args:
+        output_schema: OutputSchema from prompt frontmatter
+
+    Returns:
+        JSON Schema dict for structured output
+    """
+    # Build properties dict from output fields
+    properties = {}
+    required = []
+
+    if output_schema.fields:
+        # Use defined fields
+        for field_name, (field_type, field_desc) in output_schema.fields.items():
+            # Map Trident types to JSON Schema types
+            type_map = {
+                "str": "string",
+                "string": "string",
+                "int": "integer",
+                "integer": "integer",
+                "float": "number",
+                "number": "number",
+                "bool": "boolean",
+                "boolean": "boolean",
+                "list": "array",
+                "array": "array",
+                "dict": "object",
+                "object": "object",
+            }
+            json_type = type_map.get(field_type.lower(), "string")
+
+            properties[field_name] = {
+                "type": json_type,
+                "description": field_desc,
+            }
+            required.append(field_name)
+    else:
+        # No fields defined - create permissive schema that accepts any object
+        # This allows the agent to structure its own output
+        return {
+            "type": "object",
+            "description": "JSON response from agent",
+        }
+
+    schema = {
+        "type": "object",
+        "properties": properties,
+        "required": required,
+    }
+
+    return schema
+
+
 def _build_mcp_config(mcp_servers: dict) -> dict[str, Any]:
     """Build MCP config dict for Claude CLI --mcp-config flag.
 
@@ -152,6 +207,14 @@ def execute_agent_via_cli(
         "json",
     ]
 
+    # Add JSON schema for structured outputs
+    output_schema = agent_node.prompt_node.output
+    if output_schema.format == "json":
+        json_schema = _build_json_schema(output_schema)
+        import sys
+        print(f"DEBUG: Generated JSON schema for {agent_node.id}: {json.dumps(json_schema)}", file=sys.stderr)
+        cmd.extend(["--json-schema", json.dumps(json_schema)])
+
     # Add max turns limit
     if agent_node.max_turns:
         cmd.extend(["--max-turns", str(agent_node.max_turns)])
@@ -216,6 +279,12 @@ def execute_agent_via_cli(
     except Exception as e:
         raise CLIAgentError(f"Failed to execute Claude CLI: {e}") from e
 
+    # Debug: print full CLI output
+    import sys
+    print(f"DEBUG CLI stdout length: {len(result.stdout)}", file=sys.stderr)
+    print(f"DEBUG CLI stderr: {result.stderr[:500] if result.stderr else 'empty'}", file=sys.stderr)
+    print(f"DEBUG CLI stdout: {result.stdout[:1000]}", file=sys.stderr)
+
     # Check for CLI errors
     if result.returncode != 0:
         error_msg = result.stderr.strip() if result.stderr else "Unknown error"
@@ -233,8 +302,6 @@ def execute_agent_via_cli(
         ) from e
 
     # Debug: print CLI output
-    import sys
-
     print(
         f"DEBUG CLI output for {agent_node.id}: is_error={cli_output.get('is_error')}, result_len={len(cli_output.get('result', ''))}",
         file=sys.stderr,
@@ -249,7 +316,7 @@ def execute_agent_via_cli(
 
     # Extract result from CLI output format
     # CLI JSON format: {result: string, session_id: string, usage: {...}, total_cost_usd: float}
-    response_text = cli_output.get("result", "")
+    # When using --json-schema: {result: "", structured_output: {...}, ...}
 
     # Build tokens dict from usage
     tokens: dict[str, int] = {}
@@ -269,15 +336,22 @@ def execute_agent_via_cli(
     # Parse output based on expected format
     output_schema = agent_node.prompt_node.output
     if output_schema.format == "json":
-        try:
-            parsed = _parse_json_response(response_text)
-        except json.JSONDecodeError as e:
-            raise CLIAgentError(
-                f"Agent '{agent_node.id}' returned invalid JSON in response. "
-                f"Response preview: {response_text[:200]!r}"
-            ) from e
-        output = parsed
+        # Check for structured_output field (when using --json-schema)
+        if "structured_output" in cli_output:
+            output = cli_output["structured_output"]
+        else:
+            # Fallback to parsing result field (old behavior)
+            response_text = cli_output.get("result", "")
+            try:
+                parsed = _parse_json_response(response_text)
+            except json.JSONDecodeError as e:
+                raise CLIAgentError(
+                    f"Agent '{agent_node.id}' returned invalid JSON in response. "
+                    f"Response preview: {response_text[:200]!r}"
+                ) from e
+            output = parsed
     else:
+        response_text = cli_output.get("result", "")
         output = {"text": response_text}
 
     return CLIAgentResult(
