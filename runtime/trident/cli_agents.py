@@ -211,8 +211,6 @@ def execute_agent_via_cli(
     output_schema = agent_node.prompt_node.output
     if output_schema.format == "json":
         json_schema = _build_json_schema(output_schema)
-        import sys
-        print(f"DEBUG: Generated JSON schema for {agent_node.id}: {json.dumps(json_schema)}", file=sys.stderr)
         cmd.extend(["--json-schema", json.dumps(json_schema)])
 
     # Add max turns limit
@@ -256,15 +254,6 @@ def execute_agent_via_cli(
     # instead of pay-per-token API mode
     env = {k: v for k, v in os.environ.items() if k != "ANTHROPIC_API_KEY"}
 
-    # Debug: print command being run
-    import sys
-
-    print(f"DEBUG: Running CLI command in cwd={cwd}", file=sys.stderr)
-    print(
-        f"DEBUG: Command: {' '.join(cmd[:5])}... (prompt length: {len(cmd[2]) if len(cmd) > 2 else 0})",
-        file=sys.stderr,
-    )
-
     try:
         result = subprocess.run(
             cmd,
@@ -278,12 +267,6 @@ def execute_agent_via_cli(
         raise CLIAgentError(f"Agent '{agent_node.id}' timed out after 10 minutes") from e
     except Exception as e:
         raise CLIAgentError(f"Failed to execute Claude CLI: {e}") from e
-
-    # Debug: print full CLI output
-    import sys
-    print(f"DEBUG CLI stdout length: {len(result.stdout)}", file=sys.stderr)
-    print(f"DEBUG CLI stderr: {result.stderr[:500] if result.stderr else 'empty'}", file=sys.stderr)
-    print(f"DEBUG CLI stdout: {result.stdout[:1000]}", file=sys.stderr)
 
     # Check for CLI errors
     if result.returncode != 0:
@@ -300,14 +283,6 @@ def execute_agent_via_cli(
             f"Agent '{agent_node.id}' returned invalid JSON. "
             f"Output preview: {result.stdout[:500]!r}"
         ) from e
-
-    # Debug: print CLI output
-    print(
-        f"DEBUG CLI output for {agent_node.id}: is_error={cli_output.get('is_error')}, result_len={len(cli_output.get('result', ''))}",
-        file=sys.stderr,
-    )
-    if cli_output.get("is_error"):
-        print(f"DEBUG CLI error result: {cli_output.get('result', '')[:500]}", file=sys.stderr)
 
     # Check for CLI-level errors
     if cli_output.get("is_error"):
