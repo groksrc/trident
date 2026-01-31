@@ -123,14 +123,15 @@ def main() -> int:
     # Telemetry options
     run_parser.add_argument(
         "--telemetry",
-        action="store_true",
-        help="Enable real-time telemetry output",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Enable real-time telemetry output (default: enabled, use --no-telemetry to disable)",
     )
     run_parser.add_argument(
         "--telemetry-format",
         choices=["jsonl", "human"],
-        default="jsonl",
-        help="Telemetry output format: jsonl (JSON Lines) or human (default: jsonl)",
+        default="human",
+        help="Telemetry output format: jsonl (JSON Lines) or human (default: human)",
     )
     run_parser.add_argument(
         "--telemetry-file",
